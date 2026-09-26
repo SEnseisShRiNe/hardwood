@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { Dumbbell, Users, ArrowLeftRight, BarChart2, ClipboardList, PenLine, Trophy, Star, Zap, Shield, ChevronRight } from "lucide-react";
+import { Analytics } from "@vercel/analytics/react";
 
 // ===================== CONSTANTS =====================
 
@@ -34878,5 +34879,5 @@ class HardwoodErrorBoundary extends React.Component {
 }
 
 export default function HardwoodGame() {
-  return <HardwoodErrorBoundary><HardwoodGameInner/></HardwoodErrorBoundary>;
+  return (<><HardwoodErrorBoundary><HardwoodGameInner/></HardwoodErrorBoundary><Analytics /></>);
 }
