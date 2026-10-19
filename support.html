@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Support — Hardwood Basketball</title>
+  <meta name="description" content="Get help with Hardwood: contact support, report a bug, join r/PlayHardwood, and answers to common questions about saves, the iPhone app and gameplay." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.playhardwood.com/support.html" />
+  <meta name="theme-color" content="#0D0805" />
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
+
+  <style>
+    :root{
+      --bg-1:#1A0E06; --bg-2:#0D0805; --bg-3:#0B0B0F;
+      --card:rgba(255,255,255,0.04); --border:rgba(255,255,255,0.10);
+      --txt:rgba(255,255,255,0.92); --txt2:rgba(255,255,255,0.66); --muted:rgba(255,255,255,0.45);
+      --acc:#FF7A3D; --acc-strong:#FF4713;
+    }
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;}
+    body{
+      background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-2) 40%,var(--bg-3) 100%);
+      color:var(--txt);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      min-height:100vh;
+      -webkit-font-smoothing:antialiased;
+    }
+    .glow{
+      position:fixed; top:-140px; left:50%; transform:translateX(-50%);
+      width:560px; height:560px; border-radius:50%;
+      background:radial-gradient(circle, rgba(204,64,0,0.20) 0%, transparent 65%);
+      pointer-events:none; z-index:0;
+    }
+    header{
+      position:relative; z-index:1;
+      background:rgba(0,0,0,0.22);
+      border-bottom:1px solid rgba(255,255,255,0.08);
+      padding:18px 20px;
+      display:flex; align-items:center; gap:12px;
+    }
+    header a.back{
+      background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12);
+      color:rgba(255,255,255,0.75); border-radius:8px; padding:7px 14px;
+      font-size:13px; text-decoration:none; font-weight:600;
+      white-space:nowrap;
+    }
+    header a.back:hover{ background:rgba(255,255,255,0.14); }
+    header .brand{ display:flex; align-items:center; gap:8px; }
+    header .brand .ball{ font-size:20px; }
+    header .brand .name{ font-family:'Big Shoulders Display',Impact,sans-serif; font-weight:900; letter-spacing:-0.2px; color:#F0D8B0; font-size:18px; }
+
+    main{
+      position:relative; z-index:1;
+      max-width:680px; margin:0 auto; padding:40px 20px 80px;
+    }
+    h1{
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      font-weight:800; font-size:clamp(28px,6vw,38px);
+      letter-spacing:-0.5px; margin:0 0 6px;
+      color:#FFFFFF;
+    }
+    .updated{
+      font-variant-numeric:tabular-nums;
+      font-size:12px; color:var(--muted);
+      letter-spacing:0.5px; text-transform:uppercase;
+      margin:0 0 28px;
+    }
+    .lede{
+      font-size:16px; line-height:1.7; color:var(--txt2);
+      margin:0 0 32px;
+      padding:16px 18px;
+      background:var(--card); border:1px solid rgba(255,138,91,0.18);
+      border-radius:14px;
+    }
+    .lede strong{ color:var(--txt); }
+    section{ margin-bottom:30px; }
+    h2{
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      font-weight:800; font-size:20px; letter-spacing:-0.2px;
+      color:var(--acc); margin:0 0 10px;
+      text-transform:uppercase; font-size:13px; letter-spacing:1.5px;
+      color:var(--muted);
+    }
+    h3{
+      font-size:16px; font-weight:700; color:var(--txt); margin:18px 0 6px;
+    }
+    p{ font-size:14.5px; line-height:1.75; color:var(--txt2); margin:0 0 12px; }
+    ul{ margin:0 0 12px; padding-left:20px; }
+    li{ font-size:14.5px; line-height:1.75; color:var(--txt2); margin-bottom:6px; }
+    .card{
+      background:var(--card); border:1px solid var(--border);
+      border-radius:14px; padding:18px 20px;
+    }
+    .badge-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:28px; }
+    .badge{
+      display:inline-flex; align-items:center; gap:6px;
+      background:rgba(255,138,91,0.10); border:1px solid rgba(255,138,91,0.25);
+      color:#FFB27A; border-radius:20px; padding:7px 14px;
+      font-size:12.5px; font-weight:700;
+    }
+    footer{
+      position:relative; z-index:1;
+      max-width:680px; margin:0 auto; padding:0 20px 50px;
+      font-size:12px; color:var(--muted);
+      border-top:1px solid rgba(255,255,255,0.08);
+      padding-top:20px;
+    }
+    a{ color:var(--acc); }
+    @media (max-width:480px){
+      main{ padding:28px 16px 60px; }
+    }
+    .cta{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; }
+    .cta a{ flex:1 1 200px; text-align:center; text-decoration:none; font-weight:800; font-size:14px;
+      border-radius:12px; padding:14px 16px; }
+    .cta a.primary{ background:var(--acc-strong); color:#fff; }
+    .cta a.secondary{ background:var(--card); border:1px solid var(--border); color:var(--txt); }
+    details{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+    summary{ cursor:pointer; font-weight:700; font-size:15px; color:var(--txt); }
+    details p{ margin:10px 0 0; }
+    code{ background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:5px; }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+  <header>
+    <a class="back" href="/">← Back to Hardwood</a>
+    <div class="brand"><span class="ball">🏀</span><span class="name">HARDWOOD</span></div>
+  </header>
+
+  <main>
+    <h1>Support</h1>
+    <div class="updated">Hardwood v1.0 · iPhone &amp; web</div>
+
+    <div class="lede">
+      <strong>Need help?</strong> Email us at <a href="mailto:support@playhardwood.com">support@playhardwood.com</a>, or ask on <a href="https://www.reddit.com/r/PlayHardwood/">r/PlayHardwood</a>,
+      where other players and the developer hang out.
+    </div>
+
+    <div class="cta">
+      <a class="primary" href="mailto:support@playhardwood.com?subject=Hardwood%20support">✉️ Email support</a>
+      <a class="secondary" href="https://www.reddit.com/r/PlayHardwood/">💬 r/PlayHardwood</a>
+    </div>
+
+    <section>
+      <h2>Reporting a bug</h2>
+      <p>The quickest way is from inside the game, because it attaches the details we need (mode, screen, season, era, app version and device):</p>
+      <ul>
+        <li><strong>During a game:</strong> tap 🏠, then <em>🐛 Report a Bug</em>. Your game is saved first and you come straight back to it.</li>
+        <li><strong>From the main menu:</strong> Settings → <em>🐛 Report a Bug</em>.</li>
+      </ul>
+      <p>Then send it by email or post it on r/PlayHardwood with the <em>Bug</em> flair. A screenshot helps a lot.</p>
+    </section>
+
+    <section>
+      <h2>Common questions</h2>
+
+      <details>
+        <summary>Where are my saves stored?</summary>
+        <p>On your device only. There are no accounts. On the web, saves live in your browser for playhardwood.com.
+        In the iPhone app they live in the app, with a backup copy in its private folder that's part of your normal
+        iPhone or iCloud backup. The game autosaves after every game and whenever you leave the app.</p>
+      </details>
+
+      <details>
+        <summary>Can I move a save between the website and the app, or to a new phone?</summary>
+        <p>Not between the website and the app yet, because they keep separate storage. Moving to a new iPhone works if you
+        restore it from an iCloud or computer backup of the old one.</p>
+      </details>
+
+      <details>
+        <summary>How do I delete a save?</summary>
+        <p>Press and <strong>hold</strong> the ✕ next to the save until the bar fills. A quick tap won't delete it, so
+        you can't lose a career by accident. To delete everything, use <em>Settings → Clear All Saved Games</em> (also press
+        and hold). Deleted saves can't be recovered.</p>
+      </details>
+
+      <details>
+        <summary>My saves disappeared on the website.</summary>
+        <p>Browsers delete site data when you clear your history or cookies, browse in private mode, or (in Safari) after
+        a stretch of not visiting the site. Saves can't be recovered after that. If you play mostly on iPhone, the app keeps saves
+        more safely.</p>
+      </details>
+
+      <details>
+        <summary>Is Hardwood free? Are there ads or in-app purchases?</summary>
+        <p>It's free, with no ads, no in-app purchases and no account. It also works offline.</p>
+      </details>
+
+      <details>
+        <summary>Are these real players and teams?</summary>
+        <p>Player names and season histories come from public basketball statistics, every season from 1946–47 to
+        2026–27. Team nicknames are fictional, and the game has no logos. Hardwood is an independent project, not
+        affiliated with or endorsed by the NBA, the NBPA or any team. If you want a fully fictional league, turn on
+        <em>Random Mode</em>.</p>
+      </details>
+
+      <details>
+        <summary>What's the difference between Career and GM mode?</summary>
+        <p><strong>Career:</strong> build a player, go through the combine and draft, play or sim each game, and chase the Hall of
+        Fame. <strong>GM:</strong> run a franchise with the draft, trades, free agency, the salary cap, ticket prices and an
+        owner who expects results. Both can start in any season from 1946–47 to today, and the league changes the way
+        it really did, with expansion, relocations, rule changes and the cap.</p>
+      </details>
+
+      <details>
+        <summary>What do I need to play?</summary>
+        <p>iPhone: iOS 15 or later. Web: any recent Chrome, Safari, Firefox or Edge, on a phone or a computer.</p>
+      </details>
+
+      <details>
+        <summary>Can I suggest a feature?</summary>
+        <p>Please do. Post it on <a href="https://www.reddit.com/r/PlayHardwood/">r/PlayHardwood</a> with the <em>Suggestion</em>
+        flair. Upvoted ideas get built first.</p>
+      </details>
+    </section>
+
+    <section>
+      <h2>Privacy</h2>
+      <p>No accounts, no ads, no tracking. Read the <a href="/privacy.html">privacy policy</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    Hardwood is an independently developed project, not affiliated with or endorsed by the NBA or the NBPA.
+    Contact: <a href="mailto:support@playhardwood.com">support@playhardwood.com</a>
+  </footer>
+</body>
+</html>
