@@ -8,6 +8,7 @@
     <title>Hardwood Basketball — Free Basketball GM Sim &amp; NBA Career Game</title>
     <meta name="description" content="Hardwood is a free browser basketball sim: play a full NBA-style career from rookie to legend, or run your own team as GM — draft, trade, manage the cap, and chase a title across real 82-game seasons. No download, no account, no ads." />
     <meta name="theme-color" content="#FF4713" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="canonical" href="https://www.playhardwood.com/" />
@@ -37,11 +38,12 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/site.webmanifest" />
+    <!-- use-credentials: on password-protected Vercel preview links the manifest request
+         carries the login cookie instead of bouncing to vercel.com/sso-api (a CORS error) -->
+    <link rel="manifest" href="/site.webmanifest" crossorigin="use-credentials" />
 
     <!-- The game uses the device's system font. Only the HARDWOOD wordmark font is bundled
-         (public/fonts), preloaded so the splash paints in it, and it works offline and in the iOS build. -->
-    <link rel="preload" href="/fonts/big-shoulders-display-latin-900-normal.woff2" as="font" type="font/woff2" crossorigin />
+         (public/fonts) so it works offline and in the iOS build. -->
     <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>
   <body>
