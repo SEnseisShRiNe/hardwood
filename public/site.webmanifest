@@ -1,0 +1,11 @@
+{
+  "name": "Hardwood Basketball",
+  "short_name": "Hardwood",
+  "icons": [
+    { "src": "/favicon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/favicon-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#FF4713",
+  "background_color": "#F3E9DB",
+  "display": "standalone"
+}

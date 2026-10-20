@@ -2,6 +2,27 @@ import React, { useState, useEffect, useRef } from "react";
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { Dumbbell, Users, ArrowLeftRight, BarChart2, ClipboardList, PenLine, Trophy, Star, Zap, Shield, ChevronRight } from "lucide-react";
 
+// ── WEB ANALYTICS (website only) ── anonymous, cookie-free visit counts via
+// Vercel Web Analytics, so the developer can see how many people play. It
+// runs only on the live site (playhardwood.com or a *.vercel.app preview) —
+// never inside the iPhone app or in local development — and it can never
+// break the game. Turn it on under the Vercel project's Analytics tab.
+// Described in the privacy policy (INFO_PAGES.privacy and public/privacy.html).
+(function loadWebAnalytics() {
+  try {
+    if (typeof window === 'undefined' || window.__hwVa) return;
+    const host = window.location.hostname || '';
+    const native = !!window.Capacitor?.isNativePlatform?.() || /^(capacitor|ionic):$/.test(window.location.protocol);
+    if (native || !(/(^|\.)playhardwood\.com$/.test(host) || /\.vercel\.app$/.test(host))) return;
+    window.__hwVa = true;
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    const sc = document.createElement('script');
+    sc.defer = true;
+    sc.src = '/_vercel/insights/script.js';
+    document.head.appendChild(sc);
+  } catch (e) { /* analytics is optional */ }
+})();
+
 
 // ===================== CONSTANTS =====================
 
@@ -479,6 +500,12 @@ const HIST_FIRST = 1946, HIST_LAST = 2026;
 function histSeason(year) {
   const y = Math.min(HIST_LAST, Math.max(HIST_FIRST, parseInt(year, 10) || HIST_LAST));
   return REAL_HISTORY.seasons[String(y)];
+}
+// The newest season on record that hasn't been played yet (no real final
+// records): there's no real postseason to jump to.
+function seasonUnplayed(year) {
+  const y = parseInt(year, 10);
+  return y >= HIST_LAST && !(histSeason(y)?.t || []).some(r => r[6]) && !REAL_STANDINGS[String(y)];
 }
 function histRow(year, id) { return (histSeason(year)?.t || []).find(r => r[0] === id) || null; }
 function eraFranchiseIds(year) { return (histSeason(year)?.t || []).map(r => r[0]); }
@@ -27480,7 +27507,9 @@ const HoldToConfirmButton = ({children, holdLabel='Keep holding…', onConfirm, 
 const Lbl = ({children, style}) => <div style={{fontSize:'11px',color:'var(--hw-lbl, #666B80)',letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:'10px',fontWeight:700,...style}}>{children}</div>;
 
 // Team badge: shows the era code for a team id (PHW, MNL, ROC…).
-const Badge = ({text,clr='#FF4713'}) => <span style={{display:'inline-block',padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:800,background:clr,color:onColor(clr),letterSpacing:'0.5px',border:`1px solid ${clr}22`}}>{teamAbbr(text)}</span>;
+// Team code chip: fixed size so it lines up in lists and never spills into the
+// name beside it (the old pill grew with its padding and overlapped).
+const Badge = ({text,clr='#FF4713'}) => <span style={{display:'inline-block',boxSizing:'border-box',minWidth:'36px',padding:'3px 5px',borderRadius:'6px',fontSize:'10.5px',lineHeight:1.35,fontWeight:800,textAlign:'center',whiteSpace:'nowrap',background:clr,color:onColor(clr),letterSpacing:'0.3px',boxShadow:'inset 0 0 0 1px rgba(0,0,0,0.08)'}}>{teamAbbr(text)}</span>;
 
 const PosBadge = ({pos, pos2}) => (
   <span style={{display:'inline-flex',alignItems:'center',gap:'3px'}}>
@@ -28058,6 +28087,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   const [negoLog, setNegoLog]             = useState([]);      // running back-and-forth history for display
   const [negoStatus, setNegoStatus]       = useState(null);    // 'accepted' | 'rejected' | null (still negotiating)
   const [negoExtId, setNegoExtId]         = useState(null);
+  const [negoMood, setNegoMood]           = useState(null);    // this player's take on the talks: {interest, acceptAt, walkAt, patience, reason}
+  const [gmMleUsed, setGmMleUsed]         = useState(0);       // $M of this season's mid-level exception already used
   const [negoIdx, setNegoIdx]             = useState(null);    // MyCareer: which contract offer is open for negotiation
   const [negoAskC, setNegoAskC]           = useState(null);    // MyCareer: your current ask ($M)
   const [negoYearsC, setNegoYearsC]       = useState(null);    // MyCareer: years you're asking for    // roster player id when negotiating an EXTENSION (vs a free agent)
@@ -28271,6 +28302,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   }, [selectedEra, randomMode, randomSeed]);
 
   useEffect(() => { advanceLockRef.current = false; }, [season]);
+  // Picking an unplayed season clears a Playoffs start chosen for another year.
+  useEffect(() => { if (gmStartPhase === 'playoffs' && seasonUnplayed(selectedEra)) setGmStartPhase('preseason'); }, [selectedEra]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (simLockRef.current !== gIdx) simLockRef.current = -1; }, [gIdx]);
 
   // A save chosen from the menu loads into a freshly mounted game (see
@@ -28575,7 +28608,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       ['tradeLocked', tradeLocked, setTradeLocked], ['extDeadlinePassed', extDeadlinePassed, setExtDeadlinePassed],
       ['gmMidSeasonFired', gmMidSeasonFired, setGmMidSeasonFired], ['gmFeaturedPlayerId', gmFeaturedPlayerId, setGmFeaturedPlayerId],
       ['gmChampionships', gmChampionships, setGmChampionships], ['gmChecklist', gmChecklist, setGmChecklist],
-      ['gmFinancials', gmFinancials, setGmFinancials], ['pickOwners', pickOwners, setPickOwners],
+      ['gmFinancials', gmFinancials, setGmFinancials], ['pickOwners', pickOwners, setPickOwners], ['gmMleUsed', gmMleUsed, setGmMleUsed],
       ['gmAchs', gmAchs, setGmAchs], ['gmTradeCount', gmTradeCount, setGmTradeCount],
     ];
   }
@@ -30490,6 +30523,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   // 1996 draft, not already on the Lakers and Suns. (Starting after the draft
   // or at the playoffs keeps the real rosters as they were.)
   function startGM(id, phase='preseason') {
+    // (A season that hasn't been played has no real postseason to start in.)
+    if (phase === 'playoffs' && seasonUnplayed(selectedEra)) phase = 'preseason';
     let lg = teams;
     if (!randomMode && !['afterDraft','playoffs'].includes(phase)) {
       const yr = parseInt(selectedEra, 10);
@@ -30541,7 +30576,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setGmBudget(DEFAULT_BUDGET);
     setAwardHistory([]);
     setPickOwners(randomMode ? {} : {...(REAL_PICK_OWNERS[selectedEra] || {})}); setGmOfferPicks([]); setGmRequestPicks([]);
-    setGmAchs([]); setGmTradeCount(0);
+    setGmAchs([]); setGmTradeCount(0); setGmMleUsed(0);
     setGmFinancials(computeFinancials(myT, DEFAULT_TICKET_PRICE, { teams }));
     setTradeLocked(false);
     setExtDeadlinePassed(false);
@@ -31458,6 +31493,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // 5. Set everything
     setTeams(offFill.teams);
     setSeason(prev=>prev+1);
+    setGmMleUsed(0); // a new league year: a fresh mid-level exception
     setGmSeason({wins:0, losses:0, gamesLeft:seasonGamesFor(nextYr, randomMode)});
     setGmGameLog([]);
     setGmMidSeasonFired(false);
@@ -31500,6 +31536,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setOwnerDemand({...genOwnerDemand(liveTeamRtg(t), 0, SEASON_G, leagueAvgRtg(teams)), hiredSeason: season});
     setTicketPrice(DEFAULT_TICKET_PRICE);
     setGmBudget(DEFAULT_BUDGET);
+    setGmMleUsed(0);
     setGmFinancials(computeFinancials(t, DEFAULT_TICKET_PRICE, { teams }));
     setGmSchedule(mkSchedule(newTeamId, teams, curSeasonYear, SEASON_G));
     setCalendarViewDate(null);
@@ -31541,6 +31578,60 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setScreen('gmRetirement');
   }
 
+  // ── SIGNING ROOM ── what you can pay a free agent, NBA-style:
+  //  · cap space: anything that fits under the cap;
+  //  · over the cap: ONE mid-level exception a season — the full one (9% of
+  //    the cap) if the signing keeps you under the luxury tax, the smaller
+  //    taxpayer one (3.5%) if it doesn't. It can be split across players
+  //    but not reused (it used to refill on every signing, so an over-the-cap
+  //    team could add a $15M player every week);
+  //  · a minimum contract, always.
+  // (Re-signing your own players uses Bird rights and isn't limited.)
+  function signingRoom() {
+    const myT = teams.find(t => t.id === myTeamId);
+    const payroll = myT ? teamCap(myT) : 0;
+    const cap = getSalaryCap(), min = getMinSalary();
+    const r3 = v => Math.round(v * 1000) / 1000;
+    const space = Math.max(0, r3(cap - payroll));
+    const taxLine = hasLuxuryTax() ? getLuxuryTax() : Infinity;
+    const fullMle = r3(cap * 0.09), taxMle = r3(cap * 0.035);
+    const fullLeft = Math.max(0, r3(Math.min(fullMle - gmMleUsed, taxLine - payroll)));
+    const taxLeft  = Math.max(0, r3(taxMle - gmMleUsed));
+    const mleLeft  = Math.max(fullLeft, taxLeft);
+    const maxPay   = Math.max(min, space, mleLeft);
+    // How a salary would be signed: 'min' | 'space' | 'mle' | null (not allowed)
+    const route = (sal) => sal <= min + 0.0005 ? 'min' : sal <= space + 0.0005 ? 'space' : sal <= mleLeft + 0.0005 ? 'mle' : null;
+    return { payroll, space, overCap: payroll >= cap, overTax: payroll > taxLine, fullMle, taxMle, mleLeft, maxPay, route, used: gmMleUsed };
+  }
+
+  // A player's take on talks with you. Not everyone haggles: a player who
+  // likes the fit may take a fair offer on the spot, one who doesn't may
+  // walk at the first lowball — or not want to talk at all. Built from what
+  // he cares about (getPriorities), your team's quality, the role he'd have,
+  // and (for an extension) how happy he is.
+  function negoMoodFor(p, { isExt = false } = {}) {
+    const pr = getPriorities(p);
+    const myT = teams.find(t => t.id === myTeamId);
+    const g = myT ? (myT.wins || 0) + (myT.losses || 0) : 0;
+    const quality = myT ? (g >= 10 ? (myT.wins || 0) / g : clamp(0.5 + (liveTeamRtg(myT) - leagueAvgRtg(teams)) * 0.03, 0.2, 0.8)) : 0.5;
+    const better = (myT?.roster || []).filter(x => x.id !== p.id && x.overall > p.overall).length;
+    const role = better < 5 ? 'starter' : better < 9 ? 'rotation' : 'bench';
+    let interest = 55 + (quality - 0.5) * pr.winning * 1.6
+      + (role === 'starter' ? pr.playingTime * 0.35 : role === 'bench' ? -pr.playingTime * 0.5 : 0)
+      + (isExt ? pr.loyalty * 0.35 + ((p.satisfaction ?? 70) - 60) * 0.4 : 0)
+      + rf(-10, 10);
+    interest = Math.round(clamp(interest, 0, 100));
+    const acceptAt = clamp(0.98 - interest * 0.0014 + (pr.money - 25) * 0.004, 0.82, 1.06);
+    const walkAt   = clamp(acceptAt - 0.20 - interest * 0.0012, 0.55, acceptAt - 0.08);
+    const patience = interest >= 70 ? 4 : interest >= 45 ? 3 : interest >= 25 ? 2 : 1;
+    const top = Object.keys(pr).sort((a, b) => pr[b] - pr[a])[0];
+    const reason = top === 'winning' ? (quality >= 0.55 ? 'wants to win — likes your team' : 'wants to win — not sold on your team')
+      : top === 'playingTime' ? (role === 'starter' ? 'wants minutes — sees a starting role here' : role === 'bench' ? 'wants minutes — sees himself buried on your bench' : 'wants minutes — would be in your rotation')
+      : top === 'money' ? 'it\'s about the money for him'
+      : (isExt ? 'values loyalty — happy to stay if it\'s fair' : 'values loyalty — slow to trust a new team');
+    return { interest, acceptAt, walkAt, patience, reason, role, refuses: !isExt && interest < 18 };
+  }
+
   // ── Free agent contract negotiation ──────────────────────────
   function startNegotiation(idx) {
     const fa = freeAgents[idx];
@@ -31552,39 +31643,84 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setNegoYears(fa.contract.years || 2);
     setNegoRound(0);
     setNegoStatus(null);
-    setNegoLog([{from:'you', text:`Opening interest in a deal.`}]);
+    const mood = negoMoodFor(fa);
+    setNegoMood(mood);
+    const room = signingRoom();
+    if (room.maxPay < asking) setNegoOffer(o => Math.min(o, room.maxPay));
+    if (mood.refuses) {
+      // Not every free agent will take your call.
+      setNegoStatus('rejected');
+      setNegoLog([{from:'you', text:`Opening interest in a deal.`}, {from:'them', text:`${fa.name}'s agent: "Appreciate the call, but he's not interested — ${mood.reason.split(' — ')[1] || 'it isn\'t the right fit'}."`}]);
+    } else {
+      setNegoLog([{from:'you', text:`Opening interest in a deal.`}]);
+    }
     setScreen('gmNegotiate');
   }
 
   function submitOffer() {
-    const fa = negoExtId ? myTeam?.roster.find(p=>p.id===negoExtId) : freeAgents[negoFA];
+    const isExt = !!negoExtId;
+    const fa = isExt ? myTeam?.roster.find(p=>p.id===negoExtId) : freeAgents[negoFA];
     if (!fa) return;
     const asking = negoAsk || Math.max(fa.contract?.salary||0, getMinSalary());
+    // Free agents: you can't offer money you aren't allowed to spend.
+    if (!isExt) {
+      const room = signingRoom();
+      if (!room.route(negoOffer)) {
+        notify(room.overCap
+          ? `Over the cap — the most you can offer is ${fmtMoney(room.maxPay)} (${room.mleLeft > getMinSalary() ? 'what\'s left of your mid-level exception' : 'a minimum deal'}).`
+          : `That's more than your ${fmtMoney(room.space)} of cap space.`);
+        return;
+      }
+    }
+    const mood = negoMood || negoMoodFor(fa, { isExt });
+    if (!negoMood) setNegoMood(mood);
     const myT = myTeam;
     const winPct = myT ? myT.wins / Math.max(1, myT.wins+myT.losses) : 0.5;
-    const contenderDiscount = winPct >= 0.55 ? 0.95 : 1.0; // players take a bit less to chase a title
-    const effectiveAsking = asking * contenderDiscount;
-    const ratio = negoOffer / effectiveAsking;
+    const contenderDiscount = winPct >= 0.55 ? 0.97 : 1.0; // a little less to chase a title
+    // Length matters too: veterans want security, young players shorter deals.
+    const wantYears = fa.age >= 31 ? 3 : fa.age <= 24 ? 2 : 3;
+    const yearsPenalty = Math.abs(negoYears - wantYears) >= 2 ? 0.04 : 0;
+    const ratio = negoOffer / (asking * contenderDiscount);
     const round = negoRound + 1;
+    const acceptAt = mood.acceptAt + yearsPenalty;
 
     let response, status = null, counterVal = null;
-    if (ratio >= 0.90) {
+    if (ratio >= acceptAt) {
       status = 'accepted';
-      response = `${fa.name} accepts! "This works for me — let's get it done."`;
-    } else if (ratio < 0.60 || round >= 3) {
+      response = round === 1
+        ? pick([`${fa.name} accepts on the spot. "Done. Where do I sign?"`, `${fa.name} doesn't even counter: "That's fair. Let's do it."`, `${fa.name} accepts! "This works for me — let's get it done."`])
+        : `${fa.name} accepts! "This works for me — let's get it done."`;
+    } else if (ratio < mood.walkAt) {
       status = 'rejected';
-      response = round >= 3
-        ? `${fa.name} walks away. "I don't think we're going to get there — I'm going to look elsewhere."`
-        : `${fa.name} is offended. "That's way below what I'm worth. Come back with something real."`;
+      response = pick([`${fa.name} ends the talks. "That's way below what I'm worth — we're done here."`, `${fa.name}'s agent hangs up. "We won't be responding to that."`, `${fa.name} is offended and walks away.`]);
+    } else if (round >= mood.patience) {
+      status = 'rejected';
+      response = `${fa.name} walks away. "I don't think we're going to get there — I'm going to look elsewhere."`;
+    } else if (ratio >= acceptAt - 0.04 && Math.random() < mood.interest / 140) {
+      // Close enough, and he likes the fit: he takes it rather than haggle.
+      status = 'accepted';
+      response = `${fa.name} thinks it over… "It's a little light, but I like it here. Deal."`;
     } else {
-      counterVal = Math.max(negoOffer, roundToStep(negoOffer + (effectiveAsking-negoOffer)*0.55, negoStep(asking)));
-      response = `${fa.name} counters at ${fmtMoney(counterVal)}/yr. "I hear you, but I need to be closer to ${fmtMoney(counterVal)}."`;
+      const firm = Math.random() < 0.15 + getPriorities(fa).money / 200;
+      const target = asking * contenderDiscount * acceptAt;
+      counterVal = firm
+        ? roundToStep(Math.max(negoOffer, target), negoStep(asking))
+        : Math.max(negoOffer, roundToStep(negoOffer + (target - negoOffer) * rf(0.45, 0.7), negoStep(asking)));
+      response = firm
+        ? `${fa.name} won't budge: "${fmtMoney(counterVal)}/yr. That's my number."`
+        : `${fa.name} counters at ${fmtMoney(counterVal)}/yr. "I hear you, but I need to be closer to ${fmtMoney(counterVal)}."`;
+      if (yearsPenalty) response += ` ${fa.age >= 31 ? '"And I want more years than that."' : '"And I don\'t want to be locked in that long."'}`;
     }
 
     setNegoLog(prev => [...prev, {from:'you', text:`Offered ${fmtMoney(negoOffer)}/yr, ${negoYears}yr.`}, {from:'them', text:response}]);
     setNegoRound(round);
     setNegoStatus(status);
-    if (counterVal !== null) setNegoOffer(counterVal);
+    if (counterVal !== null) {
+      // (Counter above what you're allowed to pay: you'll have to walk.)
+      const cap2 = isExt ? Infinity : signingRoom().maxPay;
+      setNegoOffer(Math.min(counterVal, cap2));
+      if (counterVal > cap2 + 0.0005) setNegoLog(prev => [...prev, {from:'you', text:`(That's more than you can pay — ${fmtMoney(cap2)} is your limit right now.)`}]);
+    }
   }
 
   function finalizeSign() {
@@ -31608,20 +31744,18 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       return;
     }
     const finalSalary = Math.round(Math.max(negoOffer, getMinSalary())*1000)/1000;
-    const cur = teamCap(myT);
-    // Under the cap: any deal that fits. Over it: a mid-level-exception deal
-    // (about 9% of the cap) or a minimum contract, like the real rules. (It
-    // was a flat $8M over the cap, which in early eras, when the whole cap was
-    // under $1M, meant you could sign anyone for anything.)
-    const exception = Math.max(getMinSalary(), Math.round(getSalaryCap() * 0.09 * 1000) / 1000);
-    if (cur + finalSalary > getSalaryCap() && finalSalary > exception) {
-      notify(`Over the cap — you can only offer up to the ${fmtMoney(exception)} exception (or a minimum deal). Clear ${fmtMoney(cur+finalSalary-getSalaryCap())} to sign him at this price.`);
+    // Cap space, the mid-level exception (once a season) or a minimum deal.
+    const room = signingRoom();
+    const how = room.route(finalSalary);
+    if (!how) {
+      notify(`Over the cap — the most you can pay a free agent now is ${fmtMoney(room.maxPay)}. Clear salary to sign him at this price.`);
       return;
     }
+    if (how === 'mle') setGmMleUsed(u => Math.round((u + finalSalary) * 1000) / 1000);
     const ut = teams.map(t => t.id===myTeamId ? {...t, roster:[...t.roster, {...fa, contract:{salary:finalSalary, years:negoYears}}]} : t);
     setTeams(ut);
     setFreeAgents(prev => prev.filter((_,i)=>i!==negoFA));
-    notify(`✅ Signed ${fa.name}! ${fmtMoney(finalSalary)}/yr · ${negoYears}yr`);
+    notify(`✅ Signed ${fa.name}! ${fmtMoney(finalSalary)}/yr · ${negoYears}yr${how==='mle' ? ' (mid-level exception)' : how==='min' && room.overCap ? ' (minimum deal)' : ''}`);
     setNegoFA(null);
     setScreen('freeAgency');
   }
@@ -31792,6 +31926,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setNegoOffer(Math.max(getMinSalary(), roundToStep(asking*0.85, negoStep(asking))));
     setNegoYears(sat>=70 ? 4 : 2);
     setNegoRound(0); setNegoStatus(null);
+    setNegoMood(negoMoodFor(player, { isExt: true }));
     setNegoLog([{from:'you', text:`Let's talk about an extension.`}, {from:'them', text: sat>=75 ? `${player.name}: "I love it here. Let's get something done."` : sat>=55 ? `${player.name}: "I'm open to it — make it worth my while."` : `${player.name}: "Convince me I should stay."`}]);
     setScreen('gmNegotiate');
   }
@@ -33050,8 +33185,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                   ['draftLottery','Draft Lottery','Watch the lottery reveal, then move straight to the draft.'],
                   ['draft','Draft Day','Skip straight to the draft board and make your picks.'],
                   ['afterDraft','After Draft','Draft resolves automatically — jump right into managing your season.'],
-                  ['playoffs','Playoffs', randomMode || !(histSeason(selectedEra)?.t||[]).some(r => r[6]) ? 'The regular season is simulated, then you jump straight to the postseason if your team made it.' : 'See the real regular season standings from that year, then jump straight to the postseason if your team made it.'],
-                ].map(([v,label,desc])=>{
+                  ['playoffs','Playoffs', randomMode ? 'The regular season is simulated, then you jump straight to the postseason if your team made it.' : 'See the real regular season standings from that year, then jump straight to the postseason if your team made it.'],
+                ].filter(([v]) => !(v === 'playoffs' && seasonUnplayed(selectedEra))).map(([v,label,desc])=>{
                   const sel = gmStartPhase===v;
                   return (
                     <button key={v} onClick={()=>setGmStartPhase(v)}
@@ -33065,6 +33200,11 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                   );
                 })}
               </div>
+              {seasonUnplayed(selectedEra) && (
+                <div style={{fontSize:'12px',color:'rgba(255,255,255,0.6)',lineHeight:1.5,marginTop:'8px'}}>
+                  No Playoffs start for {ERAS.find(e=>e.id===selectedEra)?.label || selectedEra}: that season hasn't been played yet, so there are no real results to jump to.
+                </div>
+              )}
             </div>
           )}
 
@@ -33818,7 +33958,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
             <div style={{fontSize:'9px',color:'rgba(255,255,255,0.69)',letterSpacing:'1px'}}>OVR</div>
           </div>
           <div style={{background:'rgba(252,211,77,0.15)',border:'1px solid rgba(252,211,77,0.3)',borderRadius:'20px',padding:'5px 10px',textAlign:'center'}}>
-            <div style={{fontSize:'18px',fontWeight:900,color:'#FCD34D',fontFamily:MONO,lineHeight:1}}>99</div>
+            <div style={{fontSize:'18px',fontWeight:900,color:'#FCD34D',fontFamily:MONO,lineHeight:1}}>{playerOrigin?.id==='prodigy' ? 99 : `${Math.min(99,previewOvr+8)}–${Math.min(99,previewOvr+22)}`}</div>
             <div style={{fontSize:'9px',color:'rgba(252,211,77,0.6)',letterSpacing:'1px'}}>POT</div>
           </div>
         </div>
@@ -35244,60 +35384,79 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
           </button>
         </div>
 
-        <Container>
-          {standTab === 'standings' && (
-            <div style={{paddingTop:'12px'}}>
-              {['East','West'].map(conf => {
-                // Career playoffs are a straight top-8 bracket; GM uses the
-                // play-in from 2020-21 on (see playInEra).
-                const hasPlayIn = mode==='gm' && playInEra(curSeasonYear) && teams.filter(t=>t.conf==='East').length >= 10 && teams.filter(t=>t.conf==='West').length >= 10;
-                const sorted = [...teams].filter(t=>t.conf===conf).sort((a,b)=>b.wins-a.wins||a.losses-b.losses);
-                const poN = gmBracketSize(sorted.length, conf); // that season's real playoff field
-                const leader = sorted[0];
-                return (
-                  <div key={conf} style={{marginBottom:'20px'}}>
-                    <div style={{fontSize:'11px',color:MUTED,letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:'8px',marginTop:'12px',fontWeight:700}}>
-                      {conf}ern Conference
-                    </div>
-                    {sorted.map((t,rank) => {
-                      const gb = rank===0 ? '—' : fmt((leader.wins-t.wins+t.losses-leader.losses)/2);
-                      const zone = hasPlayIn ? (rank<6?'playoff':rank<10?'playin':'lottery') : (rank<poN?'playoff':'lottery');
-                      const zoneClr = zone==='playoff'?WIN:zone==='playin'?'#B45309':MUTED;
-                      const isMe = t.id===myTeamId;
-                      return (
-                        <div key={t.id} style={{background:isMe?t.clr+'10':zone!=='lottery'?CARD:'transparent',border:`1px solid ${isMe?t.clr:zone!=='lottery'?BORD:'transparent'}`,borderLeft:`4px solid ${rank===0?'#B45309':zone==='lottery'?BORD:zoneClr}`,borderRadius:'10px',padding:'10px 12px',marginBottom:'5px',display:'flex',alignItems:'center',gap:'12px'}}>
-                          <div style={{width:'20px',fontSize:'12px',fontWeight:700,color:zoneClr,flexShrink:0}}>{rank+1}</div>
-                          <div style={{width:'36px',flexShrink:0}}>
-                            <Badge text={t.id} clr={t.clr} />
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:isMe?700:500,fontSize:'13px',color:legible(isMe?t.clr:TXT,'light'),whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.city} {t.name}</div>
-                            <div style={{fontSize:'10px',color:MUTED,marginTop:'4px'}}>
-                              {zone==='playoff'?'✓ Playoffs':zone==='playin'?'Play-In':'Lottery'} · {fmt(t.wins+t.losses>0?t.wins/(t.wins+t.losses)*100:0)}%
-                            </div>
-                          </div>
-                          <div style={{textAlign:'right',flexShrink:0}}>
-                            <div style={{fontWeight:700,fontSize:'14px',fontFamily:MONO,color:TXT}}>{t.wins}-{t.losses}</div>
-                            <div style={{fontSize:'11px',color:MUTED}}>{rank===0?'Leader':`GB: ${gb}`}</div>
-                          </div>
+        {/* Standings: one table per conference, NBA.com style — fixed numeric
+            columns, the playoff / play-in / lottery lines drawn between rows.
+            Wide screens put East and West side by side. */}
+        {standTab === 'standings' && (() => {
+          const wide = typeof window !== 'undefined' && window.innerWidth >= 960;
+          const hasPlayIn = mode==='gm' && playInEra(curSeasonYear) && teams.filter(t=>t.conf==='East').length >= 10 && teams.filter(t=>t.conf==='West').length >= 10;
+          const pctTxt = (t) => { const g = t.wins + t.losses; if (!g) return '.000'; const v = t.wins / g; return v >= 1 ? '1.000' : '.' + String(Math.round(v * 1000)).padStart(3, '0'); };
+          const NUM = {fontFamily:MONO,fontVariantNumeric:'tabular-nums',textAlign:'right',flexShrink:0};
+          const narrow = typeof window !== 'undefined' && window.innerWidth < 440;
+          const COLS = narrow ? [['W',22],['L',22],['PCT',40],['GB',28]] : [['W',30],['L',30],['PCT',46],['GB',40]];
+          const GAP = narrow ? '8px' : '10px', PADX = narrow ? '12px' : '14px';
+          const confTable = (conf) => {
+            const sorted = [...teams].filter(t=>t.conf===conf).sort((a,b)=>b.wins-a.wins||a.losses-b.losses);
+            if (!sorted.length) return null;
+            const poN = gmBracketSize(sorted.length, conf); // that season's real playoff field
+            const leader = sorted[0];
+            const cutAt = hasPlayIn ? {6:'Play-In Tournament', 10:'Draft Lottery'} : (sorted.length > poN ? {[poN]:'Draft Lottery'} : {});
+            const zoneOf = (rank) => hasPlayIn ? (rank<6?'playoff':rank<10?'playin':'lottery') : (rank<poN?'playoff':'lottery');
+            const ZCLR = {playoff:WIN, playin:'#B45309', lottery:MUTED};
+            return (
+              <div key={conf} style={{...card({padding:0,marginBottom:'16px',overflow:'hidden'}),minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:GAP,padding:`12px ${PADX} 8px`}}>
+                  <div style={{flex:1,minWidth:0,fontSize:'11.5px',fontWeight:800,letterSpacing:'1px',textTransform:'uppercase',color:TXT,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{conf}ern {narrow ? 'Conf.' : 'Conference'}</div>
+                  {COLS.map(([h,w]) => <div key={h} style={{...NUM,width:w+'px',fontSize:'10.5px',fontWeight:700,letterSpacing:'0.8px',color:MUTED,fontFamily:SYS_FONT}}>{h}</div>)}
+                </div>
+                {sorted.map((t, rank) => {
+                  const gb = (leader.wins - t.wins + t.losses - leader.losses) / 2;
+                  const zone = zoneOf(rank);
+                  const isMe = t.id === myTeamId;
+                  const cut = cutAt[rank];
+                  return (
+                    <React.Fragment key={t.id}>
+                      {cut && (
+                        <div style={{display:'flex',alignItems:'center',gap:'8px',padding:`6px ${PADX} 4px`,borderTop:`1px dashed ${BORD}`}}>
+                          <span style={{fontSize:'9.5px',fontWeight:800,letterSpacing:'1.2px',textTransform:'uppercase',color:ZCLR[zoneOf(rank)]}}>{cut}</span>
                         </div>
-                      );
-                    })}
-                    {/* Legend */}
-                    <div style={{display:'flex',gap:'12px',marginTop:'6px',padding:'0 4px'}}>
-                      {(hasPlayIn ? [[WIN,'✓ Playoffs (1-6)'],['#B45309','Play-In (7-10)'],[MUTED,`Lottery (11-${sorted.length})`]] : [[WIN,`✓ Playoffs (${poN>1?`1-${poN}`:'1'})`], ...(sorted.length>poN?[[MUTED,`Lottery (${poN+1===sorted.length?poN+1:`${poN+1}-${sorted.length}`})`]]:[])]).map(([c,l])=>(
-                        <div key={l} style={{display:'flex',alignItems:'center',gap:'4px'}}>
-                          <div style={{width:'10px',height:'10px',borderRadius:'2px',background:c}}/>
-                          <span style={{fontSize:'10px',color:MUTED}}>{l}</span>
+                      )}
+                      <div style={{display:'flex',alignItems:'center',gap:GAP,padding:`9px ${PADX}`,borderTop:cut?'none':`1px solid ${BORD}`,background:isMe?(t.clr||ACC)+'12':'transparent',boxShadow:isMe?`inset 3px 0 0 ${t.clr||ACC}`:'none'}}>
+                        <div style={{...NUM,width:'18px',textAlign:'center',fontSize:'12px',fontWeight:800,color:ZCLR[zone]}}>{rank+1}</div>
+                        <div style={{width:'28px',height:'28px',borderRadius:'8px',background:t.clr||'#666',color:onColor(t.clr||'#666'),display:'flex',alignItems:'center',justifyContent:'center',fontSize:'9px',fontWeight:900,letterSpacing:'0.2px',flexShrink:0,boxShadow:'inset 0 0 0 1px rgba(0,0,0,0.08)'}}>{teamAbbr(t.id)}</div>
+                        <div style={{flex:1,minWidth:0,lineHeight:1.2}}>
+                          <div style={{fontSize:'10.5px',color:MUTED,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.city}</div>
+                          <div style={{fontSize:'14px',fontWeight:isMe?800:650,color:TXT,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.name}{isMe && <span style={{marginLeft:'6px',fontSize:'9.5px',fontWeight:800,letterSpacing:'0.8px',color:legible(t.clr||ACC,'light'),verticalAlign:'1px'}}>YOU</span>}</div>
                         </div>
-                      ))}
-                    </div>
+                        <div style={{...NUM,width:COLS[0][1]+'px',fontSize:'14px',fontWeight:700,color:TXT}}>{t.wins}</div>
+                        <div style={{...NUM,width:COLS[1][1]+'px',fontSize:'14px',fontWeight:700,color:TXT}}>{t.losses}</div>
+                        <div style={{...NUM,width:COLS[2][1]+'px',fontSize:'13px',color:TXT2}}>{pctTxt(t)}</div>
+                        <div style={{...NUM,width:COLS[3][1]+'px',fontSize:'13px',color:TXT2}}>{rank===0 ? '—' : fmt(gb)}</div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            );
+          };
+          return (
+            <div style={{maxWidth: wide ? '1120px' : '680px', margin:'0 auto', padding:'12px 16px 90px'}}>
+              <div style={{display:'grid',gridTemplateColumns: wide ? 'repeat(2,minmax(0,1fr))' : 'minmax(0,1fr)',gap:'16px',alignItems:'start'}}>
+                {['East','West'].map(confTable)}
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'14px',padding:'0 4px'}}>
+                {(hasPlayIn ? [[WIN,'Playoffs'],['#B45309','Play-In'],[MUTED,'Lottery']] : [[WIN,'Playoffs'],[MUTED,'Lottery']]).map(([c,l]) => (
+                  <div key={l} style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                    <div style={{width:'8px',height:'8px',borderRadius:'50%',background:c}}/>
+                    <span style={{fontSize:'11px',color:MUTED,fontWeight:600}}>{l}</span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          )}
+          );
+        })()}
 
+        <Container>
           {standTab === 'leaders' && (
             <div style={{paddingTop:'12px'}}>
               {(!leaders.dataAvailable && !leaders.isProjected) ? (
@@ -37138,6 +37297,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const space  = capSpace(myTeam||{roster:[]});
     const rSz    = myTeam?.roster?.length || 0;
     const rFull  = rSz >= MAX_ROSTER;
+    const faRoom = signingRoom();
     const used   = teamCap(myTeam||{roster:[]}); // (was rounded to $0.1M — most of a 1950s payroll)
     const deadAmt = (myTeam?.deadMoney||[]).reduce((s,d)=>s+(d.salary||0),0);
     return (
@@ -37166,7 +37326,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               <div style={{display:'flex',gap:'8px',marginTop:'10px',flexWrap:'wrap'}}>
                 {rFull  && <span style={{fontSize:'11px',fontWeight:700,color:LOSS ,background:LOSS +'12',padding:'2px 8px',borderRadius:'10px'}}>⛔ Roster full — release before signing</span>}
                 {used < getSalaryFloor() && <span style={{fontSize:'11px',fontWeight:700,color:'#B45309',background:'#B4530912',padding:'2px 8px',borderRadius:'10px'}}>⚠ Below salary floor ({fmtMoney(getSalaryFloor())})</span>}
-                {space <= 0 && !rFull && <span style={{fontSize:'11px',fontWeight:700,color:MUTED,background:CARD,padding:'2px 8px',borderRadius:'10px',border:`1px solid ${BORD}`}}>Min salary signings still available ({fmtMoney(getMinSalary())})</span>}
+                {space <= 0 && !rFull && <span style={{fontSize:'11px',fontWeight:700,color:faRoom.mleLeft > getMinSalary() ? '#B45309' : MUTED,background:CARD,padding:'2px 8px',borderRadius:'10px',border:`1px solid ${BORD}`}}>{faRoom.mleLeft > getMinSalary() ? `Over the cap · mid-level exception: ${fmtMoney(faRoom.mleLeft)} left this season` : `Over the cap · minimum deals only (${fmtMoney(getMinSalary())})`}</span>}
               </div>
             </div>
 
@@ -37176,8 +37336,10 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               // Over the cap you can still use the exception (~9% of the cap),
               // the same rule finalizeSign enforces. (Was min + a flat $0.5M,
               // which in early eras made everyone look affordable.)
-              const canAfford = space >= salary || salary <= Math.max(getMinSalary(), getSalaryCap() * 0.09);
-              const canSign   = canAfford && !rFull;
+              const canAfford = salary <= faRoom.maxPay + 0.0005 || salary * 0.85 <= faRoom.maxPay; // (he may take a bit less than his ask)
+              // You can always put a minimum offer in front of anyone; whether he
+              // takes it is up to him.
+              const canSign   = !rFull;
               const pot       = p.potential ?? p.overall;
               return (
                 <div key={p.id} style={{...card({padding:'12px 14px',marginBottom:'8px'}),borderLeft:`3px solid ${ovrClr(p.overall)}`,opacity:rFull?0.6:1}}>
@@ -37199,7 +37361,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                     <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
                       <button onClick={()=>startNegotiation(i)} disabled={!canSign}
                         style={{background:canSign?WIN+'20':BORD,color:canSign?WIN:MUTED,border:`1px solid ${canSign?WIN+'44':BORD}`,borderRadius:'8px',padding:'7px 14px',fontSize:'12px',fontWeight:700,cursor:canSign?'pointer':'not-allowed',fontFamily:SYS_FONT,opacity:canSign?1:0.5}}>
-                        {rFull?'Full':canAfford?'Offer':'No space'}
+                        {rFull?'Full':canAfford?'Offer':'Offer min'}
                       </button>
                     </div>
                   </div>
@@ -37241,8 +37403,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const asking = negoAsk || Math.max(fa.contract.salary, getMinSalary());
     const step = negoStep(asking);
     const minOffer = getMinSalary();
-    const maxOffer = Math.max(minOffer, roundToStep(asking*1.3, step));
-    const roundsLeft = Math.max(0, 3 - negoRound);
+    const room = isExt ? null : signingRoom();
+    // Free agents: never more than you're allowed to pay (Bird rights cover extensions).
+    const maxOffer = Math.max(minOffer, Math.min(roundToStep(asking*1.3, step), room ? Math.floor(room.maxPay / step) * step || minOffer : Infinity));
+    const mood = negoMood;
+    const roundsLeft = Math.max(0, (mood?.patience ?? 3) - negoRound);
+    const interestLbl = !mood ? null : mood.interest >= 70 ? ['High interest', WIN] : mood.interest >= 40 ? ['Some interest', '#B45309'] : ['Low interest', LOSS];
 
     return (
       <Wrap>
@@ -37262,8 +37428,23 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                   <div style={{fontSize:'15px',fontWeight:800,fontFamily:MONO,color:TXT}}>{fmtMoney(asking)}/yr</div>
                 </div>
               </div>
+              {interestLbl && (
+                <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',marginTop:'2px'}}>
+                  <span style={{fontSize:'11px',fontWeight:800,color:interestLbl[1],background:interestLbl[1]+'14',border:`1px solid ${interestLbl[1]}33`,padding:'2px 8px',borderRadius:'10px'}}>{interestLbl[0]}</span>
+                  <span style={{fontSize:'11.5px',color:TXT2}}>He {mood.reason}.</span>
+                </div>
+              )}
               {negoStatus === null && (
-                <div style={{fontSize:'11px',color:MUTED,textAlign:'right'}}>{roundsLeft} round{roundsLeft!==1?'s':''} left before they walk</div>
+                <div style={{fontSize:'11px',color:MUTED,marginTop:'6px'}}>{roundsLeft <= 1 ? 'Last chance — he may walk after this offer.' : `He'll hear about ${roundsLeft} more offer${roundsLeft!==1?'s':''} at most. A lowball can end the talks early.`}</div>
+              )}
+              {room && negoStatus === null && (
+                <div style={{fontSize:'11.5px',color:room.overCap?'#B45309':TXT2,marginTop:'6px',fontWeight:600}}>
+                  {room.overCap
+                    ? (room.mleLeft > minOffer
+                        ? `Over the cap: you can pay up to ${fmtMoney(room.mleLeft)} with what's left of your mid-level exception, or a minimum deal.`
+                        : `Over the cap with your mid-level exception used: minimum deals only (${fmtMoney(minOffer)}).`)
+                    : `Cap space: ${fmtMoney(room.space)}${room.mleLeft > room.space ? ` (or up to ${fmtMoney(room.mleLeft)} with the mid-level exception)` : ''}.`}
+                </div>
               )}
             </div>
 
@@ -40917,7 +41098,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const teamClr = myTeam?.clr || ACC;
     const story   = pick(BIO_STORIES[myPlayer.pos] || BIO_STORIES.SF);
     const heightFt= Math.floor(buildHeight/12), heightIn=buildHeight%12;
-    const drafted = BASE_YEAR; // always drafted in base year
+    const drafted = ERAS.find(e=>e.id===selectedEra)?.baseYear ?? parseInt(selectedEra,10); // the June draft before your first season (it always said 2024)
     const unlocked = new Set(unlockedAchs);
     const earnedAchs = ACHIEVEMENTS.filter(a=>unlocked.has(a.id));
     const ss = shootSplits(sSt), cs = shootSplits(careerTotals);
@@ -42132,7 +42313,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // ROY: a full-stat-line composite (points, boards, assists, and defense)
     // rather than points-heavy alone, so two rookies who happen to share a
     // PPG average are still correctly separated by the rest of their game.
-    const roy = [...withStats].filter(p=>p.age<=20).sort((a,b)=>
+    const roy = [...withStats].filter(p=>isRookieSeason(p, curSeasonYear)).sort((a,b)=>
       (b.ppg+b.rpg*0.7+b.apg*0.7+b.spg*1.0+b.bpg*1.0) - (a.ppg+a.rpg*0.7+a.apg*0.7+a.spg*1.0+a.bpg*1.0)
     ).slice(0,5);
     const smoy = [...withStats].filter(p=>p.overall>=60 && !starterIds.has(p.id)).sort((a,b)=>
@@ -42612,7 +42793,7 @@ function CookieConsentBanner() {
       <div style={{pointerEvents:'auto',width:'100%',maxWidth:'640px',margin:'0 10px 10px',background:'linear-gradient(160deg,#2A1A0A 0%,#1A0E06 100%)',border:'1px solid rgba(200,150,80,0.22)',borderRadius:'14px',boxShadow:'0 12px 40px rgba(0,0,0,0.40)',padding:'10px 12px 10px 14px',display:'flex',alignItems:'center',gap:'10px',fontFamily:SYS_FONT}}>
         <span style={{fontSize:'16px',lineHeight:1,flexShrink:0}}>🍪</span>
         <div style={{flex:1,minWidth:0,fontSize:'11.5px',color:'rgba(240,216,176,0.82)',lineHeight:1.45}}>
-          We only use local storage to save your game — no accounts, no ads, no tracking cookies.{' '}
+          We only use local storage to save your game — no accounts, no ads, no tracking cookies. The website counts visits anonymously.{' '}
           <button onClick={()=>openInfoPage('privacy')} style={{color:'#F0D8B0',fontWeight:700,textDecoration:'underline',whiteSpace:'nowrap',background:'transparent',border:'none',padding:0,cursor:'pointer',fontSize:'inherit',fontFamily:SYS_FONT}}>Privacy Policy</button>
         </div>
         <button onClick={dismiss} style={{flexShrink:0,padding:'8px 16px',borderRadius:'9px',border:'none',background:'linear-gradient(135deg,#CC4000 0%,#A03000 100%)',color:'white',fontSize:'12px',fontWeight:800,cursor:'pointer',fontFamily:SYS_FONT,whiteSpace:'nowrap'}}>Got it</button>
@@ -42708,16 +42889,17 @@ function BootSplash() {
 // site's public/ folder is deployed too (a link to a missing page went nowhere).
 const INFO_PAGES = {
   privacy: { title:'Privacy Policy', updated:'Last updated · October 2026',
-    lede:"Hardwood doesn't have accounts, doesn't run ads, and doesn't track you. Your career and franchise saves live only on your own device, in your browser or in the iPhone app. Nothing about your game is sent anywhere unless you choose to send a bug report.",
+    lede:"Hardwood doesn't have accounts, doesn't run ads, and doesn't track you as a person. Your career and franchise saves live only on your own device, in your browser or in the iPhone app. The website counts visits anonymously, without cookies; the iPhone app sends nothing. Nothing about your game is sent anywhere unless you choose to send a bug report.",
     sections:[
       ['What Hardwood is', ['Hardwood is a basketball career and general-manager simulation. You can play it in your browser at playhardwood.com or in the Hardwood iPhone app. Both run entirely on your own device: there is no account system, no login, and no server that stores your games.']],
-      ['What we collect', ["None, in the ordinary sense. Hardwood doesn't ask for your name, email address, date of birth or any other personal information, and it doesn't use cookies, analytics scripts, advertising trackers or fingerprinting of any kind."]],
+      ['What we collect', ["No personal information. Hardwood doesn't ask for your name, email address, date of birth or anything else about you, and it doesn't use cookies, advertising trackers or fingerprinting. The only thing measured is an anonymous count of visits to the website (see Analytics below)."]],
       ['Game saves on the web', ["Saves are written to your browser's localStorage on your own device. They are never uploaded, and no one else — including us — can see them. Clearing your browser's site data, using a different browser or switching devices leaves them behind, since nothing is backed up anywhere else."]],
       ['Game saves in the iPhone app', ["Saves are kept in the app's own storage, with a second copy in its private app folder so iOS freeing up space can't wipe your careers. That folder is part of your normal iPhone or iCloud backup, which Apple handles; we never see it. Deleting the app deletes the saves."]],
       ["Your player's face", ['If you pick a photo or draw a face for your MyCareer player, it is shrunk to a small image and stored inside your save on your device. It is never uploaded or shared. The iPhone app asks for camera or photo access only when you tap to add a photo, and only uses the one picture you pick.']],
       ['Bug reports you choose to send', ["Nothing is sent unless you write a report and choose to send it. A report contains what you typed plus a few game details that help find the problem: the game mode, the screen you were on, the season and era, the app version, and your device and browser type. It doesn't include your saves or personal information unless you type it in yourself.", "You send a report by email from your own mail app, or by posting it on the public r/PlayHardwood community, where Reddit's privacy policy applies. Reports are used only to fix the game and are deleted once no longer needed. Email us to have one deleted."]],
       ['Hosting logs', ['Like effectively every website, Hardwood is served through a hosting provider that may record basic technical information for security and reliability, such as IP address, browser type and the pages requested. Hardwood itself does not collect or use this, and it is not used to build a profile of you.']],
-      ['Advertising & analytics', ['There is no advertising and no analytics of any kind — no Google Analytics, no ad networks, no tracking pixels. If that ever changes, this policy will be updated first.']],
+      ['Advertising', ['There is no advertising — no ad networks and no tracking pixels.']],
+      ['Analytics (website only)', ['The website at playhardwood.com uses Vercel Web Analytics to count visits, so we can see how many people play. It uses no cookies and stores nothing on your device. For each visit it records the page, the time, the referring site, your approximate location (country/region/city), and your device type, operating system and browser. Visitors are counted with a temporary hash of the request that is discarded after 24 hours, so visits aren\'t tied to you, your IP address or your activity on other sites, and the counts are only ever seen in aggregate.', 'The Hardwood iPhone app does not include this and sends no analytics at all. Your saves and anything in your game are never part of it. You can block it with any content blocker without affecting the game.']],
       ["Children's privacy", ["Because Hardwood collects no personal information from anyone, it doesn't knowingly collect any from children either. There is nothing to sign up for."]],
       ['Your choices', ['Your data stays on your device, so you are in full control. To delete one save, press and hold the ✕ next to it. To delete them all, use Settings → Clear All Saved Games. On the web you can also clear this site\'s data in your browser; in the iPhone app, deleting the app removes everything.']],
       ['Contact', [`Questions about privacy or anything else: ${SUPPORT_EMAIL}.`]],

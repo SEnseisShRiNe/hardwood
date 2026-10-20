@@ -1,3 +1,42 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #root { min-height: 100vh; background: #F4F4F6; }
-body { -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  min-height: 100vh;
+  background: #F4F4F6;
+}
+
+body {
+  /* The device's own font: San Francisco on iPhone/Mac, Segoe UI on Windows, Roboto on Android */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-variant-numeric: tabular-nums; /* even-width digits so stat columns line up */
+  -webkit-font-smoothing:  antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Prevent tap highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Notch / Dynamic Island: in the iOS app (and home-screen web app) the page
+   sits below the status bar, with an opaque strip behind it so content never
+   scrolls under the clock. In a normal browser these insets are 0. */
+body {
+  padding-top: env(safe-area-inset-top);
+}
+#root::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: env(safe-area-inset-top);
+  background: #14141F;
+  z-index: 100000;
+  pointer-events: none;
+}
+/* …but not over the boot splash, which matches the native launch screen. */
+#root:has(#hw-splash)::before { display: none; }
