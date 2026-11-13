@@ -1,3 +1,0 @@
-Open this link, then drag in every file from this folder (not the folder itself) and press Commit changes:
-
-https://github.com/SEnseisShRiNe/hardwood/upload/main/public/real

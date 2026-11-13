@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Basketball GM Game — Free NBA GM Simulator in Your Browser | Hardwood</title>
+<meta name="description" content="Run a real NBA franchise for free: draft, trade picks, manage the salary cap and sign free agents in any of 81 seasons since 1946–47. No download, no account." />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="https://www.playhardwood.com/basketball-gm-game/" />
+<meta name="theme-color" content="#F3E9DB" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Hardwood" />
+<meta property="og:title" content="Basketball GM Game — Free NBA GM Simulator in Your Browser | Hardwood" />
+<meta property="og:description" content="Run a real NBA franchise for free: draft, trade picks, manage the salary cap and sign free agents in any of 81 seasons since 1946–47. No download, no account." />
+<meta property="og:url" content="https://www.playhardwood.com/basketball-gm-game/" />
+<meta property="og:image" content="https://www.playhardwood.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Basketball GM Game — Free NBA GM Simulator in Your Browser | Hardwood" />
+<meta name="twitter:description" content="Run a real NBA franchise for free: draft, trade picks, manage the salary cap and sign free agents in any of 81 seasons since 1946–47. No download, no account." />
+<meta name="twitter:image" content="https://www.playhardwood.com/og-image.png" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+<link rel="shortcut icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="stylesheet" href="/fonts/fonts.css" />
+<style>
+:root{--bg:#F3E9DB;--bg2:#FBF3E7;--ink:#2C1608;--ink2:#4A3420;--muted:#7A6248;--acc:#CC4000;--acc2:#A03000;--card:#FFFAF2;--line:rgba(60,30,10,.12);--dark:#1A0E06}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{background:var(--bg) radial-gradient(ellipse 120% 50% at 50% 0,var(--bg2),var(--bg) 70%) no-repeat;color:var(--ink);font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--acc)}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);max-width:1040px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink)}
+.brand img{width:26px;height:26px}
+.brand b{font-family:'Big Shoulders Display',Impact,sans-serif;font-weight:900;font-size:22px;letter-spacing:-.3px}
+nav{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;font-weight:600}
+nav a{color:var(--ink2);text-decoration:none}nav a:hover,nav a[aria-current]{color:var(--acc)}
+main{max-width:860px;margin:0 auto;padding:36px 20px 40px}
+.eyebrow{font-size:11px;letter-spacing:4px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:0 0 10px}
+h1{font-size:clamp(30px,6vw,46px);line-height:1.1;letter-spacing:-.8px;margin:0 0 14px;font-weight:900}
+h2{font-size:clamp(22px,4vw,28px);letter-spacing:-.4px;margin:44px 0 12px;line-height:1.2}
+h3{font-size:18px;margin:0 0 6px;line-height:1.3}
+.lede{font-size:18px;color:var(--ink2);margin:0 0 24px;max-width:640px}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.btn{display:inline-block;padding:14px 22px;border-radius:12px;font-weight:800;text-decoration:none;font-size:16px;color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 8px 24px rgba(180,60,0,.25)}
+.btn.alt{background:linear-gradient(135deg,#2A1A0A,var(--dark));color:#F0D8B0;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.note{font-size:13px;color:var(--muted);margin:6px 0 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:16px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card p{margin:0;color:var(--ink2);font-size:15px}
+ul.feat{padding-left:20px;margin:8px 0}ul.feat li{margin:6px 0;color:var(--ink2)}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:8px 0}
+summary{font-weight:700;cursor:pointer}details p{margin:8px 0 0;color:var(--ink2)}
+.decades{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.decades a{padding:6px 11px;border-radius:999px;background:var(--card);border:1px solid var(--line);text-decoration:none;color:var(--ink2);font-size:14px;font-weight:700}
+.season{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c,#CC4000);border-radius:12px;padding:14px 16px;margin:10px 0;scroll-margin-top:12px}
+.season .yr{font-size:12px;font-weight:800;letter-spacing:1.5px;color:var(--muted)}
+.season p{margin:4px 0 8px;color:var(--ink2);font-size:15px}
+.season .who{font-size:13px;color:var(--muted);margin:0 0 10px}
+.season .go{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;font-weight:800}
+.season .go a{text-decoration:none}
+footer{border-top:1px solid var(--line);max-width:1040px;margin:30px auto 0;padding:22px 20px 40px;font-size:13px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+footer a{color:var(--ink2);text-decoration:none;font-weight:600}
+@media (max-width:520px){nav{gap:10px;font-size:13px}.btn{width:100%;text-align:center}}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Hardwood", "item": "https://www.playhardwood.com/"}, {"@type": "ListItem", "position": 2, "name": "Basketball GM game", "item": "https://www.playhardwood.com/basketball-gm-game/"}]}</script><script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is Hardwood's GM mode free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. It's free to play in any browser, with no download, no account and no in-app purchases."}}, {"@type": "Question", "name": "Are the players and rosters real?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Each of the 81 seasons from 1946–47 to 2026–27 starts with that year's real players, rosters and contracts. Team nicknames are Hardwood's own, and there is also a random-league mode with brand-new players."}}, {"@type": "Question", "name": "Can I trade draft picks?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Picks are part of trades, including the real traded picks in recent seasons, and you can build two- and three-team deals."}}, {"@type": "Question", "name": "How does the salary cap work?", "acceptedAnswer": {"@type": "Answer", "text": "It follows real rules for the era: cap space, a mid-level exception once you're over the cap, minimum contracts and the luxury tax. Free agents negotiate — some accept right away, some hold firm and some walk."}}, {"@type": "Question", "name": "Does it save my progress?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, automatically after every game, on your device. In a browser, clearing the site's data erases your saves, so leave it alone if you want to keep your league."}}, {"@type": "Question", "name": "Can I play on my phone?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Hardwood works in any mobile browser, and you can add it to your home screen to play it like an app."}}]}</script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/" aria-label="Hardwood — play now"><img src="/favicon.svg" alt="" width="26" height="26" /><b>HARDWOOD</b></a>
+  <nav aria-label="Main"><a href="/">Play</a><a href="/basketball-gm-game/" aria-current="page">GM Mode</a><a href="/basketball-career-game/">Career Mode</a><a href="/seasons/">All Seasons</a></nav>
+</header>
+<main>
+
+<p class="eyebrow">Free basketball GM game · in your browser</p>
+<h1>Basketball GM Game: run a real NBA franchise</h1>
+<p class="lede">Hardwood is a free basketball general manager sim. Pick a real season, take over any team, and make every call: the draft, trades, free agency and the salary cap. Then sim the 82 games and live with the results.</p>
+<div class="cta"><a class="btn" href="/?play=gm">Start GM mode — free</a><a class="btn alt" href="/seasons/">Pick a season</a></div>
+<p class="note">No download, no account. Runs on phones and computers.</p>
+
+<h2>What you control as GM</h2>
+<div class="grid">
+  <div class="card"><h3>The draft</h3><p>Scout the real draft class all season, watch the lottery, then make your picks — or trade up for the player you want. Undrafted players become free agents.</p></div>
+  <div class="card"><h3>Trades</h3><p>Two- and three-team deals with players and draft picks. CPU teams value talent, age, contracts and picks, so lopsided offers get turned down.</p></div>
+  <div class="card"><h3>Salary cap</h3><p>Cap space, the mid-level exception, minimum deals and the luxury tax, following the rules of your era.</p></div>
+  <div class="card"><h3>Free agency</h3><p>Every player has priorities — winning, money, role. Some sign on the spot, some counter, some walk away.</p></div>
+  <div class="card"><h3>Owner and finances</h3><p>Hit your owner's mandate, keep the books in the black and protect your reputation, or you might be looking for a new job.</p></div>
+  <div class="card"><h3>Seasons and playoffs</h3><p>Sim game by game or skip ahead. Standings, awards races, a full playoff bracket and a champion at the end.</p></div>
+</div>
+
+<h2>Start from a famous season</h2>
+<p>Every season from 1946–47 to 2026–27 is playable. A few favorites:</p>
+<div class="grid"><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=1984"><h3>1984–85 · Magic Beats Bird in the Rematch</h3><p>Magic Johnson, Larry Bird, Michael Jordan</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=1995"><h3>1995–96 · Jordan&#x27;s 72-Win Bulls</h3><p>Michael Jordan, Scottie Pippen, Dennis Rodman</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=1996"><h3>1996–97 · The Bulls Do It Again</h3><p>Michael Jordan, Karl Malone, Scottie Pippen</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=2003"><h3>2003–04 · The Pistons Shock the World</h3><p>Chauncey Billups, Kevin Garnett, Kobe Bryant</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=2015"><h3>2015–16 · 73 Wins and Still Lost</h3><p>Stephen Curry, LeBron James, Kyrie Irving</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=gm&amp;season=2026"><h3>2026–27 · The New Season</h3><p>Victor Wembanyama, Jaylen Brown, AJ Dybantsa</p></a></div>
+<p><a href="/seasons/">See all 81 seasons →</a></p>
+
+<h2>How a GM run goes</h2>
+<ul class="feat">
+  <li><b>Pick a season and a team.</b> Contender, rebuild or somewhere in between.</li>
+  <li><b>Shape the roster.</b> Trade, sign free agents and set your rotation before opening night.</li>
+  <li><b>Play the season.</b> Sim ahead, check the standings and make moves before the deadline.</li>
+  <li><b>Draft and re-sign.</b> The offseason is where dynasties are built: lottery, draft night, extensions and free agency.</li>
+  <li><b>Keep going.</b> Players age and develop, rookies arrive and teams rise and fall for as many seasons as you like.</li>
+</ul>
+
+<h2>Questions</h2>
+<details><summary>Is Hardwood&#x27;s GM mode free?</summary><p>Yes. It&#x27;s free to play in any browser, with no download, no account and no in-app purchases.</p></details><details><summary>Are the players and rosters real?</summary><p>Yes. Each of the 81 seasons from 1946–47 to 2026–27 starts with that year&#x27;s real players, rosters and contracts. Team nicknames are Hardwood&#x27;s own, and there is also a random-league mode with brand-new players.</p></details><details><summary>Can I trade draft picks?</summary><p>Yes. Picks are part of trades, including the real traded picks in recent seasons, and you can build two- and three-team deals.</p></details><details><summary>How does the salary cap work?</summary><p>It follows real rules for the era: cap space, a mid-level exception once you&#x27;re over the cap, minimum contracts and the luxury tax. Free agents negotiate — some accept right away, some hold firm and some walk.</p></details><details><summary>Does it save my progress?</summary><p>Yes, automatically after every game, on your device. In a browser, clearing the site&#x27;s data erases your saves, so leave it alone if you want to keep your league.</p></details><details><summary>Can I play on my phone?</summary><p>Yes. Hardwood works in any mobile browser, and you can add it to your home screen to play it like an app.</p></details>
+<div class="cta" style="margin-top:28px"><a class="btn" href="/?play=gm">Play GM mode now</a><a class="btn alt" href="/basketball-career-game/">Or play a career</a></div>
+
+</main>
+<footer>
+  <span>© 2026 Hardwood · Free basketball GM &amp; career sim</span>
+  <span><a href="/">Play now</a> · <a href="/seasons/">All seasons</a> · <a href="/support.html">Support</a> · <a href="/privacy.html">Privacy</a> · <a href="https://www.reddit.com/r/PlayHardwood/" rel="noopener">Reddit</a></span>
+</footer>
+</body>
+</html>

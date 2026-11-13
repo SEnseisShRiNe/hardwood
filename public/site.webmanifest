@@ -1,11 +1,53 @@
 {
+  "id": "/",
   "name": "Hardwood Basketball",
   "short_name": "Hardwood",
-  "icons": [
-    { "src": "/favicon-192x192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/favicon-512x512.png", "sizes": "512x512", "type": "image/png" }
-  ],
+  "description": "Free basketball GM sim and career game. Run a real NBA franchise or play a career, in any season since 1946-47.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
   "theme_color": "#FF4713",
   "background_color": "#F3E9DB",
-  "display": "standalone"
+  "categories": [
+    "games",
+    "sports"
+  ],
+  "icons": [
+    {
+      "src": "/favicon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "GM Mode",
+      "short_name": "GM",
+      "description": "Run a franchise",
+      "url": "/?play=gm",
+      "icons": [
+        {
+          "src": "/favicon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Career Mode",
+      "short_name": "Career",
+      "description": "Start a player career",
+      "url": "/?play=career",
+      "icons": [
+        {
+          "src": "/favicon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
 }

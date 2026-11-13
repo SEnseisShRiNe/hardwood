@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Basketball Career Game — Free NBA Career Simulator | Hardwood</title>
+<meta name="description" content="Create a player, get drafted by a real team and play a full basketball career — from rookie to MVP and the Hall of Fame. Free in your browser, any season since 1946–47." />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="https://www.playhardwood.com/basketball-career-game/" />
+<meta name="theme-color" content="#F3E9DB" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Hardwood" />
+<meta property="og:title" content="Basketball Career Game — Free NBA Career Simulator | Hardwood" />
+<meta property="og:description" content="Create a player, get drafted by a real team and play a full basketball career — from rookie to MVP and the Hall of Fame. Free in your browser, any season since 1946–47." />
+<meta property="og:url" content="https://www.playhardwood.com/basketball-career-game/" />
+<meta property="og:image" content="https://www.playhardwood.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Basketball Career Game — Free NBA Career Simulator | Hardwood" />
+<meta name="twitter:description" content="Create a player, get drafted by a real team and play a full basketball career — from rookie to MVP and the Hall of Fame. Free in your browser, any season since 1946–47." />
+<meta name="twitter:image" content="https://www.playhardwood.com/og-image.png" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+<link rel="shortcut icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="stylesheet" href="/fonts/fonts.css" />
+<style>
+:root{--bg:#F3E9DB;--bg2:#FBF3E7;--ink:#2C1608;--ink2:#4A3420;--muted:#7A6248;--acc:#CC4000;--acc2:#A03000;--card:#FFFAF2;--line:rgba(60,30,10,.12);--dark:#1A0E06}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{background:var(--bg) radial-gradient(ellipse 120% 50% at 50% 0,var(--bg2),var(--bg) 70%) no-repeat;color:var(--ink);font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--acc)}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);max-width:1040px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink)}
+.brand img{width:26px;height:26px}
+.brand b{font-family:'Big Shoulders Display',Impact,sans-serif;font-weight:900;font-size:22px;letter-spacing:-.3px}
+nav{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;font-weight:600}
+nav a{color:var(--ink2);text-decoration:none}nav a:hover,nav a[aria-current]{color:var(--acc)}
+main{max-width:860px;margin:0 auto;padding:36px 20px 40px}
+.eyebrow{font-size:11px;letter-spacing:4px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:0 0 10px}
+h1{font-size:clamp(30px,6vw,46px);line-height:1.1;letter-spacing:-.8px;margin:0 0 14px;font-weight:900}
+h2{font-size:clamp(22px,4vw,28px);letter-spacing:-.4px;margin:44px 0 12px;line-height:1.2}
+h3{font-size:18px;margin:0 0 6px;line-height:1.3}
+.lede{font-size:18px;color:var(--ink2);margin:0 0 24px;max-width:640px}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.btn{display:inline-block;padding:14px 22px;border-radius:12px;font-weight:800;text-decoration:none;font-size:16px;color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 8px 24px rgba(180,60,0,.25)}
+.btn.alt{background:linear-gradient(135deg,#2A1A0A,var(--dark));color:#F0D8B0;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.note{font-size:13px;color:var(--muted);margin:6px 0 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:16px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card p{margin:0;color:var(--ink2);font-size:15px}
+ul.feat{padding-left:20px;margin:8px 0}ul.feat li{margin:6px 0;color:var(--ink2)}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:8px 0}
+summary{font-weight:700;cursor:pointer}details p{margin:8px 0 0;color:var(--ink2)}
+.decades{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.decades a{padding:6px 11px;border-radius:999px;background:var(--card);border:1px solid var(--line);text-decoration:none;color:var(--ink2);font-size:14px;font-weight:700}
+.season{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c,#CC4000);border-radius:12px;padding:14px 16px;margin:10px 0;scroll-margin-top:12px}
+.season .yr{font-size:12px;font-weight:800;letter-spacing:1.5px;color:var(--muted)}
+.season p{margin:4px 0 8px;color:var(--ink2);font-size:15px}
+.season .who{font-size:13px;color:var(--muted);margin:0 0 10px}
+.season .go{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;font-weight:800}
+.season .go a{text-decoration:none}
+footer{border-top:1px solid var(--line);max-width:1040px;margin:30px auto 0;padding:22px 20px 40px;font-size:13px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+footer a{color:var(--ink2);text-decoration:none;font-weight:600}
+@media (max-width:520px){nav{gap:10px;font-size:13px}.btn{width:100%;text-align:center}}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Hardwood", "item": "https://www.playhardwood.com/"}, {"@type": "ListItem", "position": 2, "name": "Basketball career game", "item": "https://www.playhardwood.com/basketball-career-game/"}]}</script><script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is the career mode free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Hardwood is free in your browser, with no download, no account and no in-app purchases."}}, {"@type": "Question", "name": "Can I create my own player?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. You build your player's attributes, position and background, then get drafted by a real team in the season you choose."}}, {"@type": "Question", "name": "How hard is it?", "acceptedAnswer": {"@type": "Answer", "text": "Pick Easy, Normal or Hard. On Hard your shots fall less often and opponents play tougher, so becoming a star takes real work."}}, {"@type": "Question", "name": "Which seasons can I start in?", "acceptedAnswer": {"@type": "Answer", "text": "Any of the 81 seasons from 1946–47 to 2026–27, with that year's real players as your teammates and rivals."}}, {"@type": "Question", "name": "Does it save automatically?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, automatically after every game, on your device — no account needed."}}]}</script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/" aria-label="Hardwood — play now"><img src="/favicon.svg" alt="" width="26" height="26" /><b>HARDWOOD</b></a>
+  <nav aria-label="Main"><a href="/">Play</a><a href="/basketball-gm-game/">GM Mode</a><a href="/basketball-career-game/" aria-current="page">Career Mode</a><a href="/seasons/">All Seasons</a></nav>
+</header>
+<main>
+
+<p class="eyebrow">Free basketball career game · in your browser</p>
+<h1>Basketball Career Game: from the draft to the Hall of Fame</h1>
+<p class="lede">Create a player, get drafted into a real NBA season and play your way up — workouts, big moments, contracts and awards. How good can you get before your knees give out?</p>
+<div class="cta"><a class="btn" href="/?play=career">Start a career — free</a><a class="btn alt" href="/seasons/">Pick a season</a></div>
+<p class="note">No download, no account. Runs on phones and computers.</p>
+
+<h2>Your career, step by step</h2>
+<div class="grid">
+  <div class="card"><h3>Build your player</h3><p>Choose a position and background, spend points on scoring, passing, defense and more, and find out what archetype you become.</p></div>
+  <div class="card"><h3>Get drafted</h3><p>Land on a real team next to that season's real players — a contender, or a lottery team that needs you now.</p></div>
+  <div class="card"><h3>Play the season</h3><p>Sim games, step in at crunch time and make the calls in the moments that decide your story.</p></div>
+  <div class="card"><h3>Get better</h3><p>Earn skill points, train in the gym and grow toward your potential as you age.</p></div>
+  <div class="card"><h3>Get paid</h3><p>Sign extensions, test free agency and pick between money, winning and a bigger role.</p></div>
+  <div class="card"><h3>Build a legacy</h3><p>All-Star games, MVP and Rookie of the Year races, championships and the Hall of Fame.</p></div>
+</div>
+
+<h2>Start in a famous season</h2>
+<div class="grid"><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=1984"><h3>1984–85 · Magic Beats Bird in the Rematch</h3><p>Magic Johnson, Larry Bird, Michael Jordan</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=1995"><h3>1995–96 · Jordan&#x27;s 72-Win Bulls</h3><p>Michael Jordan, Scottie Pippen, Dennis Rodman</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=1996"><h3>1996–97 · The Bulls Do It Again</h3><p>Michael Jordan, Karl Malone, Scottie Pippen</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=2003"><h3>2003–04 · The Pistons Shock the World</h3><p>Chauncey Billups, Kevin Garnett, Kobe Bryant</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=2015"><h3>2015–16 · 73 Wins and Still Lost</h3><p>Stephen Curry, LeBron James, Kyrie Irving</p></a><a class="card" style="text-decoration:none;color:inherit" href="/?play=career&amp;season=2026"><h3>2026–27 · The New Season</h3><p>Victor Wembanyama, Jaylen Brown, AJ Dybantsa</p></a></div>
+<p><a href="/seasons/">See all 81 seasons →</a></p>
+
+<h2>Questions</h2>
+<details><summary>Is the career mode free?</summary><p>Yes. Hardwood is free in your browser, with no download, no account and no in-app purchases.</p></details><details><summary>Can I create my own player?</summary><p>Yes. You build your player&#x27;s attributes, position and background, then get drafted by a real team in the season you choose.</p></details><details><summary>How hard is it?</summary><p>Pick Easy, Normal or Hard. On Hard your shots fall less often and opponents play tougher, so becoming a star takes real work.</p></details><details><summary>Which seasons can I start in?</summary><p>Any of the 81 seasons from 1946–47 to 2026–27, with that year&#x27;s real players as your teammates and rivals.</p></details><details><summary>Does it save automatically?</summary><p>Yes, automatically after every game, on your device — no account needed.</p></details>
+<div class="cta" style="margin-top:28px"><a class="btn" href="/?play=career">Play career mode now</a><a class="btn alt" href="/basketball-gm-game/">Or run a team as GM</a></div>
+
+</main>
+<footer>
+  <span>© 2026 Hardwood · Free basketball GM &amp; career sim</span>
+  <span><a href="/">Play now</a> · <a href="/seasons/">All seasons</a> · <a href="/support.html">Support</a> · <a href="/privacy.html">Privacy</a> · <a href="https://www.reddit.com/r/PlayHardwood/" rel="noopener">Reddit</a></span>
+</footer>
+</body>
+</html>

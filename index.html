@@ -7,6 +7,7 @@
     <!-- SEO -->
     <title>Hardwood Basketball — Free Basketball GM Sim &amp; NBA Career Game</title>
     <meta name="description" content="Hardwood is a free browser basketball sim: play a full NBA-style career from rookie to legend, or run your own team as GM — draft, trade, manage the cap, and chase a title across real 82-game seasons. No download, no account, no ads." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#FF4713" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -17,10 +18,15 @@
     <meta property="og:title"       content="Hardwood Basketball — Free Basketball GM Sim & Career Game" />
     <meta property="og:description" content="Play a full basketball career or run your own team as GM, free in your browser. Draft, trade, manage the cap, and chase a title over real 82-game seasons." />
     <meta property="og:type"        content="website" />
+    <meta property="og:site_name"   content="Hardwood" />
     <meta property="og:url"         content="https://www.playhardwood.com/" />
     <meta property="og:image"       content="https://www.playhardwood.com/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+
+    <!-- Structured data: tells search engines this is a free game called Hardwood -->
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebSite", "name": "Hardwood", "alternateName": ["Hardwood Basketball", "playhardwood.com"], "url": "https://www.playhardwood.com/"}</script>
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "Hardwood", "alternateName": "Hardwood Basketball", "url": "https://www.playhardwood.com/", "description": "A free basketball GM simulator and career game in your browser. Run a real NBA franchise or play a career from the draft to the Hall of Fame, in any season since 1946-47.", "image": "https://www.playhardwood.com/og-image.png", "genre": ["Sports", "Simulation", "Basketball"], "gamePlatform": ["Web browser", "iOS"], "applicationCategory": "GameApplication", "operatingSystem": "Any", "playMode": "SinglePlayer", "inLanguage": "en", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "sameAs": ["https://www.reddit.com/r/PlayHardwood/"]}</script>
 
     <!-- Twitter card -->
     <meta name="twitter:card"        content="summary_large_image" />
@@ -71,8 +77,23 @@
         <div class="tag">BASKETBALL SIMULATOR</div>
         <div class="bar"><i></i></div>
       </div>
+      <!-- Readable version of the welcome page for search engines and link
+           previews that don't run JavaScript. Same content the game shows; it
+           sits under the splash and React replaces it on first render. -->
+      <main id="hw-static">
+        <h1>Hardwood — free basketball GM sim &amp; career game</h1>
+        <p>Ever watch your team blow a trade, tank a season, or reach on a draft pick and think <em>I could do better than this front office</em>? Or wondered if you had what it takes to go from a combine tryout to the Hall of Fame? In Hardwood, you find out.</p>
+        <p>Hardwood is a free basketball GM sim and NBA career game, playable right in your browser — no download, no account. Real historic rosters, a real salary cap, real stakes. Pick your era, pick your role, and see how good a GM — or a player — you really are.</p>
+        <h2><a href="/?play=career">Career Mode (MyCareer)</a></h2>
+        <p>Draft combine. Build your player. Play the season. Chase the Hall of Fame. <a href="/basketball-career-game/">How career mode works</a>.</p>
+        <h2><a href="/?play=gm">GM Mode (MyGM)</a></h2>
+        <p>Run the front office. Draft, trade, manage the cap. Build a dynasty. <a href="/basketball-gm-game/">How GM mode works</a>.</p>
+        <h2><a href="/seasons/">Play any season since 1946–47</a></h2>
+        <p>Start from the real league in any of 81 seasons, from the first BAA season to 2026–27.</p>
+        <p><a href="/support.html">Support</a> · <a href="/privacy.html">Privacy</a> · <a href="https://www.reddit.com/r/PlayHardwood/">r/PlayHardwood</a></p>
+      </main>
     </div>
-    <noscript><p style="font-family:system-ui;text-align:center;padding:40px">Hardwood needs JavaScript turned on to run.</p></noscript>
+    <noscript><style>#hw-splash{display:none}#hw-static{max-width:640px;margin:0 auto;padding:32px 20px;font-family:system-ui,sans-serif;color:#2C1608;line-height:1.6}</style><p style="font-family:system-ui;text-align:center;padding:20px">Hardwood needs JavaScript turned on to run.</p></noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
