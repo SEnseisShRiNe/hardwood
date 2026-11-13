@@ -1,0 +1,11 @@
+{
+  "appId": "com.playhardwood.app",
+  "appName": "Hardwood",
+  "webDir": "dist",
+  "backgroundColor": "#F3E9DB",
+  "ios": {
+    "backgroundColor": "#F3E9DB",
+    "contentInset": "never",
+    "scrollEnabled": true
+  }
+}
