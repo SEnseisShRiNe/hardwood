@@ -27124,7 +27124,7 @@ function rivalFor(rivals, teamId, seed = 0, ctx = {}) {
 }
 const relLabel = (rel) => rel >= 40 ? { t:'Warm', c:WIN } : rel >= 12 ? { t:'Friendly', c:WIN } : rel > -12 ? { t:'Neutral', c:TXT2 } : rel > -45 ? { t:'Cold', c:ACC_T } : { t:'Hostile', c:LOSS };
 // How a rival sees a package: tradeValue with his style's lean.
-function rivalValue(style, players, picks, { own = false, ownTop = new Set(), pv = () => 0 } = {}) {
+function rivalValue(style, players, picks, { own = false, ownTop = new Set(), pv = () => 0, cash = 0, raw = false } = {}) {
   const S = RIVAL_STYLES[style] || RIVAL_STYLES.shark;
   let v = 0;
   for (const p of players || []) {
@@ -27132,10 +27132,12 @@ function rivalValue(style, players, picks, { own = false, ownTop = new Set(), pv
     if ((p.age ?? 27) <= 24) x *= S.young; else if ((p.age ?? 27) >= 30) x *= S.vet;
     if (style === 'gambler' && (p.potential ?? p.overall) - p.overall >= 6) x *= 1.15;
     if (own && ownTop.has(p.id)) x *= S.own;
+    else if (!own) x -= tradeBurden(p); // taking on a player it doesn't want costs something
     v += x;
   }
   for (const k of picks || []) v += pv(k) * S.pick;
-  return Math.round(v);
+  v += cashValue(cash);
+  return raw ? v : Math.round(v);
 }
 // What a rival says after a deal (shows in league news).
 const RIVAL_QUOTES = {
@@ -27151,7 +27153,9 @@ const RIVAL_QUOTES = {
 // reaches, so two 70s routinely bought an MVP-level player.) Young players
 // with room to grow count part of their ceiling; 31+ loses value each year;
 // salary above what the player is worth counts against him.
-function tradeValue(p) {
+function tradeValue(p) { return Math.max(0, Math.round(rawTradeValue(p))); }
+// Before the floor at 0: an overpaid player comes out negative.
+function rawTradeValue(p) {
   const ovr = p.overall || 50, age = p.age ?? 27;
   const room = Math.max(0, (p.potential ?? ovr) - ovr);
   const eff = ovr + (age < 25 ? Math.min(12, room * (25 - age) / 10) : 0);
@@ -27160,7 +27164,32 @@ function tradeValue(p) {
   else if (age <= 24) v *= 1.1;
   const excess = Math.max(0, (p.contract?.salary || 0) - expectedSalary(ovr, null, p.name));
   v -= excess / Math.max(0.01, getSalaryCap()) * 250;
-  return Math.max(0, Math.round(v));
+  return v;
+}
+// What it costs a team to take on a player it has no use for: the roster
+// spot, plus whatever part of his salary he isn't worth. A team won't absorb
+// a minimum contract for nothing; real teams attach a second-round pick or
+// cash to move one.
+function tradeBurden(p) {
+  const raw = rawTradeValue(p);
+  return raw >= 1 ? 0 : Math.min(40, 1 + Math.max(0, -raw));
+}
+
+// ── CASH IN TRADES ──
+// Real rule (2023 CBA): each season a team can send up to 5.15% of the cap
+// in cash in trades, and separately receive up to the same amount ($7.964M
+// in 2025-26); the smallest payment used is $110K. Teams buy late
+// second-round picks for $1.5-2.5M and attach cash to move small contracts.
+const CASH_CAP_SHARE = 0.0515;
+const capToday = () => Math.max(0.01, getSalaryCap()) / 154.647; // this era's dollars per 2025-26 dollar
+const tradeCashLimit = () => Math.round(getSalaryCap() * CASH_CAP_SHARE * 1000) / 1000;
+// Cash amounts offered in the trade screen, in this era's money.
+const tradeCashSteps = () => [0.11, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 7.964].map(m => Math.round(m * capToday() * 1000) / 1000);
+// Trade value of cash. Today's $2M is about a late second-round pick; it
+// tops out near a high second (~5), because money can't buy a first.
+function cashValue(m) {
+  if (!(m > 0)) return 0;
+  return Math.round(6 * (1 - Math.exp(-(m / capToday()) / 4)) * 10) / 10;
 }
 
 // Trade Block finder — scans the rest of the league for players who fill
@@ -27177,7 +27206,9 @@ function tradeSalarySideOk(payroll, sendSal, recvSal) {
 // picks: your own draft picks as [{k, v}] (key and trade value). A pick can
 // round out a package: a 2nd-rounder as a sweetener, or a 1st when your
 // expendable players don't add up to the target on their own.
-function findTradeSuggestions(myTeam, teams, { picks = [] } = {}) {
+// accepts(theirTeam, givePlayers, givePickKeys, target): the other GM's own
+// verdict (style, relationship, sharpness). Without it the neutral 0.9 rule is used.
+function findTradeSuggestions(myTeam, teams, { picks = [], accepts = null } = {}) {
   if (!myTeam?.roster?.length) return [];
   const mySorted = [...myTeam.roster].sort((a,b)=>b.overall-a.overall);
   const myExpendable = mySorted.slice(Math.min(2, mySorted.length)); // everyone but your top two
@@ -27226,10 +27257,10 @@ function findTradeSuggestions(myTeam, teams, { picks = [] } = {}) {
         if (!idx.length && !ps.length) continue;
         const v = idx.reduce((s,i)=>s+vals[i],0) + ps.reduce((s,pk)=>s+pk.v,0);
         const r = v/Math.max(1,targetVal);
-        if (r > 1.35 || r < 0.9) continue; // 0.9+: the CPU always takes it (it asks for 0.80-0.90)
+        if (r > (accepts ? 1.6 : 1.35) || r < (accepts ? 0.8 : 0.9)) continue; // 0.9+: the CPU always takes it (it asks for 0.80-0.90); under 0.8 the other GM feels fleeced
         // prefer fewer pieces, and players not already in another suggested deal
         const d = Math.abs(v - targetVal) + Math.max(0, idx.length - 1) * 2 + ps.length * 1.5 + idx.reduce((s,i)=>s+(gaveCount[myExpendable[i].id]||0)*4,0);
-        if (d < bestDiff) { const combo = idx.map(i=>myExpendable[i]); if (legal(combo)) { bestCombo = combo; bestPicks = ps.map(pk => pk.k); bestDiff = d; } }
+        if (d < bestDiff) { const combo = idx.map(i=>myExpendable[i]); if (legal(combo) && (!accepts || accepts(theirT, combo, ps.map(pk => pk.k), target))) { bestCombo = combo; bestPicks = ps.map(pk => pk.k); bestDiff = d; } }
       }
     };
     const n = myExpendable.length;
@@ -27244,7 +27275,7 @@ function findTradeSuggestions(myTeam, teams, { picks = [] } = {}) {
     if (!bestCombo) continue;
     const comboVal = bestCombo.reduce((s,p)=>s+tradeValue(p),0) + bestPicks.reduce((s,k)=>s+(picks.find(pk=>pk.k===k)?.v||0),0);
     const fairness = comboVal/Math.max(1,targetVal);
-    if (fairness < 0.65 || fairness > 1.5) continue;
+    if (fairness < 0.65 || fairness > (accepts ? 1.7 : 1.5)) continue;
     usedPlayerIds.add(target.id); usedTeams.add(theirT.id);
     bestCombo.forEach(p => { gaveCount[p.id] = (gaveCount[p.id]||0) + 1; });
     suggestions.push({
@@ -27781,7 +27812,7 @@ const healthMult  = (b) => [1.25, 1.12, 1, 0.88, 0.75][budgetLevel(b,'health') -
 const scoutMult   = (b) => BUDGET_MULT[budgetLevel(b,'scouting') - 1];
 const coachingDev = (b) => budgetLevel(b,'coaching') - 3; // attribute points added/removed each offseason
 
-function computeFinancials(myTeam, ticketPrice = DEFAULT_TICKET_PRICE, { teams = null, budget = DEFAULT_BUDGET, playoffs = false } = {}) {
+function computeFinancials(myTeam, ticketPrice = DEFAULT_TICKET_PRICE, { teams = null, budget = DEFAULT_BUDGET, playoffs = false, tradeCash = null } = {}) {
   const empty = {revenue:0,expenses:0,profit:0,payroll:0,taxLine:0,ticketRevenue:0,otherRevenue:0,attendanceRate:0,ticketPrice,revenueItems:[],expenseItems:[],budgetCost:0,opsCost:0};
   if (!myTeam) return empty;
   const M  = financeScale(teams);
@@ -27803,13 +27834,14 @@ function computeFinancials(myTeam, ticketPrice = DEFAULT_TICKET_PRICE, { teams =
     ['Local TV & radio',    35 * (0.7 + hype * 0.6) * M],
     ['National TV',         122 * M],
     ...(playoffs ? [['Playoff gates', 12 * M]] : []),
+    ...(tradeCash?.r > 0 ? [['Cash received in trades', tradeCash.r]] : []),
   ].map(([k,v]) => [k, r1(v)]);
   const payroll = r1(teamCap(myTeam));
   // (No luxury tax was charged until 2002-03.)
   const taxLine = hasLuxuryTax() && payroll > getLuxuryTax() ? r1(luxuryTaxBill(payroll-getLuxuryTax())) : 0;
   const budgetRows = BUDGET_ITEMS.map(it => [it.label, r1(it.base * BUDGET_COST[budgetLevel(budget, it.key) - 1] * M)]);
   const opsCost = r1(25 * M);
-  const expenseItems = [['Player salaries', payroll], ...(taxLine ? [['Luxury tax', taxLine]] : []), ...budgetRows, ['Operations', opsCost]];
+  const expenseItems = [['Player salaries', payroll], ...(taxLine ? [['Luxury tax', taxLine]] : []), ...budgetRows, ['Operations', opsCost], ...(tradeCash?.s > 0 ? [['Cash sent in trades', r1(tradeCash.s)]] : [])];
   const revenue  = r1(revenueItems.reduce((s,[,v]) => s+v, 0));
   const expenses = r1(expenseItems.reduce((s,[,v]) => s+v, 0));
   const budgetCost = r1(budgetRows.reduce((s,[,v]) => s+v, 0));
@@ -28094,9 +28126,9 @@ const BUG_REPORT_ENDPOINT = `https://formspree.io/f/${BUG_REPORT_FORMSPREE_ID}`;
 const BUG_REPORT_LIVE = !/^YOUR_/.test(BUG_REPORT_FORMSPREE_ID);
 // Where players reach you. Until a Formspree form is set up above, bug
 // reports go out by email or as a post on the subreddit instead.
-const APP_VERSION    = '1.21'; // bump with each release and add a CHANGELOG entry (newest first)
+const APP_VERSION    = '1.24'; // bump with each release and add a CHANGELOG entry (newest first)
 const _SITE_URL      = 'https://www.playhardwood.com'; // (Privacy and Support now open in-app)
-const SUPPORT_EMAIL  = 'supportplayhardwood@gmail.com';
+const SUPPORT_EMAIL  = 'focusedadventuresstudios@gmail.com';
 const COMMUNITY_URL  = 'https://www.reddit.com/r/PlayHardwood/';
 const COMMUNITY_NAME = 'r/PlayHardwood';
 const IS_NATIVE_APP  = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
@@ -32559,6 +32591,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   const [rcSt, setRcSt] = useState({ pid:null, name:'', year:null, view:'basic', from:'realStats' });
   const [rsFrom, setRsFrom] = useState(null);
   const [rosterOpen, setRosterOpen]       = useState(null);   // roster row with its actions showing
+  const [resignAll, setResignAll]         = useState(false);  // re-sign list: show every expiring player, not just the top 3
   const [negoMood, setNegoMood]           = useState(null);    // this player's take on the talks: {interest, acceptAt, walkAt, patience, reason}
   const [gmMleUsed, setGmMleUsed]         = useState(0);       // $M of this season's mid-level exception already used
   const [negoIdx, setNegoIdx]             = useState(null);    // MyCareer: which contract offer is open for negotiation
@@ -32675,6 +32708,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   });
   const [marketPos, setMarketPos]         = useState('ALL');  // Trade Block "browse the market" filters
   const [marketType, setMarketType]       = useState('ALL');
+  const [shopSel, setShopSel]             = useState({ players: [], picks: [], cash: 0 }); // Trade Block "shop a package": what you're offering
+  const [shopOffers, setShopOffers]       = useState(null);   // {at: teams when searched, list}; hidden once the league changes
   const [gmOffer, setGmOffer]             = useState([]);
   const [gmRequest, setGmRequest]         = useState([]);
   const [gmOfferPicks, setGmOfferPicks]   = useState([]);   // pick keys you're sending
@@ -32682,6 +32717,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   const [watchFocus, setWatchFocus]       = useState(null); // GM Watch: whose line the scoreboard follows (null = the featured player)
   const [watchFocusPick, setWatchFocusPick] = useState(false);
   const [gmRequestPicks, setGmRequestPicks] = useState([]); // pick keys you're asking for
+  // Cash in the deal being built ($M): + you pay it, − they pay you. Tied to
+  // the trade partner, so switching teams starts you back at no cash.
+  const [gmTradeCashSt, setGmTradeCashSt] = useState({ team: null, m: 0 });
+  const gmTradeCash = gmTradeCashSt.team === gmTradeTeam ? gmTradeCashSt.m : 0;
+  const setGmTradeCash = (m) => setGmTradeCashSt({ team: gmTradeTeam, m });
+  const [gmCashLedger, setGmCashLedger]   = useState(null); // {y, t:{teamId:{s,r}}}: cash each team has sent/received in trades this season
   const [pickOwners, setPickOwners]       = useState({});   // 'year:round:originalTeam' -> current owner (traded picks only)
   const [gmTradeResult, setGmTradeResult] = useState(null);
   // Optional third team — when set, the trade screen switches from the
@@ -32786,7 +32827,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const yr = curSeasonYear;
     const over = !!gmPlayoffData?.champion || !!(gmSeason && gmSeason.gamesLeft <= 0);
     const g0 = (p) => (p.ssY === yr && Array.isArray(p.ss)) ? (p.ss[SSI.g] || 0) : 0;
-    const asset = (x) => x.key
+    const asset = (x) => x.cash
+      ? { k: 'cash', key: null, label: `${fmtMoney(x.cash)} cash`, name: `${fmtMoney(x.cash)} cash`, to: x.to, pid: null, ws: 0, seasons: 0, rings: 0 }
+      : x.key
       ? { k: 'pick', key: x.key, label: (([y, r, o]) => `${y} ${r === '1' ? '1st' : '2nd'} round pick (${teamAbbr(o)})`)(x.key.split(':')), to: x.to, pid: null, name: null, ws: 0, seasons: 0, rings: 0 }
       : { k: 'p', pid: x.p.id, name: x.p.name, pos: x.p.pos, ovr: x.p.overall, age: x.p.age, to: x.to, g0: g0(x.p), ws: 0, seasons: 0, rings: 0 };
     setGmTradeLog(prev => [...(prev || []), {
@@ -32969,7 +33012,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const target = rivalValue(R.style, [want], []) / (R.style === 'shark' ? 1.08 : 1);
     // Their side: one or two players that add up to what they think yours is worth.
     const theirs = [...t.roster].sort((a, b) => tradeValue(b) - tradeValue(a)).slice(2).filter(p => tradeValue(p) > 0);
-    const val = (ps) => rivalValue(R.style, ps, []);
+    const val = (ps) => rivalValue(R.style, ps, [], { own: true }); // their own players: no burden
     let best = null;
     const roomForTwo = (me.roster || []).length + 1 <= MAX_ROSTER; // a 2-for-1 must not push you over the limit
     for (let i = 0; i < theirs.length; i++) for (let j = i; j < theirs.length; j++) {
@@ -33516,7 +33559,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       ['gmFinancials', gmFinancials, setGmFinancials], ['pickOwners', pickOwners, setPickOwners], ['gmMleUsed', gmMleUsed, setGmMleUsed],
       ['gmAchs', gmAchs, setGmAchs], ['gmTradeCount', gmTradeCount, setGmTradeCount], ['achShop', achShop, setAchShop],
       ['sigShoe', sigShoe, setSigShoe],
-      ['gmTradeLog', gmTradeLog, setGmTradeLog], ['draftSlots', draftSlots, setDraftSlots], ['gmStoryLog', gmStoryLog, setGmStoryLog],
+      ['gmTradeLog', gmTradeLog, setGmTradeLog], ['gmCashLedger', gmCashLedger, setGmCashLedger], ['draftSlots', draftSlots, setDraftSlots], ['gmStoryLog', gmStoryLog, setGmStoryLog],
     ];
   }
   function extraSaveState() {
@@ -36459,7 +36502,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // Contract extension deadline — game 69
     if (gamesPlayed > DEADLINE_EXT && !extDeadlinePassed) {
       setExtDeadlinePassed(true);
-      notify('📋 Extension Deadline passed. Expiring players head to free agency.');
+      notify('📋 Extension Deadline passed. Re-sign your expiring players from the Roster before next season, or they decide for themselves.');
     }
 
     // Waiver wire deadline — game 75
@@ -36502,7 +36545,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       allNBA: [names(awards.allNBA.first), names(awards.allNBA.second), names(awards.allNBA.third)],
       allDefense: [names(awards.allDefense.first), names(awards.allDefense.second)],
       allRookie: [names(awards.allRookie.first), names(awards.allRookie.second)] }]);
-    const fin      = computeFinancials({...myFinalT, wins}, ticketPrice, { teams: finalUt, budget: gmBudget, playoffs: gmPostseasonStatus(finalUt, myTeamId, curSeasonYear)==='playoffs' });
+    const fin      = computeFinancials({...myFinalT, wins}, ticketPrice, { teams: finalUt, budget: gmBudget, playoffs: gmPostseasonStatus(finalUt, myTeamId, curSeasonYear)==='playoffs', tradeCash: cashUsed(myTeamId) });
     const ownerMet = ownerDemandMet(ownerDemand, wins, finalUt, myTeamId);
     const money    = ownerMoneyVerdict(fin);
     const strikes  = (ownerMet ? 0 : 1) + (money.strike ? 1 : 0);
@@ -36941,11 +36984,13 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   function finalizeSign() {
     if (negoExtId) {
       // Extension: Bird rights let a team go over the cap to keep its own player.
+      // The new years start after this one (the current season still counts as
+      // one year left), so a 4-year deal leaves 4 years once the season rolls over.
       const pl = myTeam?.roster.find(p=>p.id===negoExtId);
       if (!pl || negoStatus !== 'accepted') return;
       const sal = Math.round(Math.max(negoOffer, getMinSalary())*1000)/1000;
-      setTeams(teams.map(t => t.id===myTeamId ? {...t, roster:t.roster.map(p=>p.id===negoExtId ? {...p, contract:{salary:sal, years:negoYears}, satisfaction:Math.min(100,(p.satisfaction??70)+6)} : p)} : t));
-      notify(`✅ ${pl.name} signed an extension: ${negoYears}yr / ${fmtMoney(sal)}`);
+      setTeams(teams.map(t => t.id===myTeamId ? {...t, roster:t.roster.map(p=>p.id===negoExtId ? {...p, contract:{salary:sal, years:negoYears + ((p.contract?.years||0) >= 1 ? 1 : 0)}, satisfaction:Math.min(100,(p.satisfaction??70)+6)} : p)} : t));
+      notify(`✅ ${pl.name} re-signed: ${negoYears}yr / ${fmtMoney(sal)}`);
       setNegoExtId(null);
       setScreen('roster');
       return;
@@ -37150,9 +37195,65 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setNegoYears(sat>=70 ? 4 : 2);
     setNegoRound(0); setNegoStatus(null);
     setNegoMood(negoMoodFor(player, { isExt: true }));
-    setNegoLog([{from:'you', text:`Let's talk about an extension.`}, {from:'them', text: sat>=75 ? `${player.name}: "I love it here. Let's get something done."` : sat>=55 ? `${player.name}: "I'm open to it — make it worth my while."` : `${player.name}: "Convince me I should stay."`}]);
+    setNegoLog([{from:'you', text:`Let's talk about a new deal.`}, {from:'them', text: sat>=75 ? `${player.name}: "I love it here. Let's get something done."` : sat>=55 ? `${player.name}: "I'm open to it — make it worth my while."` : `${player.name}: "Convince me I should stay."`}]);
     setScreen('gmNegotiate');
   }
+
+  // Re-signing your own players, made obvious: one list (roster screen and
+  // dashboard) with each expiring player's ask, his odds of staying if you
+  // do nothing (the same odds resolveContracts rolls), and a Re-sign button
+  // that opens the negotiation directly.
+  const resignOdds = (p) => { const s = p.satisfaction ?? 70; return s>=75 ? 84 : s>=55 ? 58 : s>=35 ? 28 : 8; };
+  const resignAsk  = (p) => { const s = p.satisfaction ?? 70; return roundSalary(calcSalary(p.overall, null, p.name) * (s>=75 ? 0.94 : s>=55 ? 1.0 : 1.12)); };
+  const resignList = (list, { offseason = false, urgent = offseason } = {}) => {
+    const all = [...list].sort((a,b) => b.overall - a.overall);
+    // Early in the season show the three best; from the deadline on, everyone.
+    const rows = urgent || resignAll ? all : all.slice(0, 3);
+    return (
+      <div style={{...card({padding:'14px'}), borderLeft:`3px solid ${WIN}`, marginBottom:'12px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:'8px',marginBottom:'4px'}}>
+          <span style={{fontSize:'15px',fontWeight:800,color:TXT}}>{noEmoji(`Re-sign your players · ${all.length}`)}</span>
+          {offseason && <span style={{fontSize:'11.5px',fontWeight:800,color:LOSS,whiteSpace:'nowrap'}}>Last chance</span>}
+        </div>
+        <div style={{fontSize:'12.5px',color:TXT2,lineHeight:1.45,marginBottom:'8px'}}>
+          {offseason
+            ? 'Their contracts are up. Anyone you don\'t re-sign decides for himself when the new season starts, and may sign elsewhere.'
+            : 'These contracts end after this season. Re-sign now (Bird rights: no cap limit), or each player decides for himself in the offseason.'}
+        </div>
+        {rows.map(p => {
+          const s = p.satisfaction ?? 70;
+          const sl = satLabel(s);
+          const odds = resignOdds(p);
+          const oddsClr = odds >= 70 ? WIN : odds >= 40 ? legible(ACC_T,'light') : LOSS;
+          const noTalk = s < 30;
+          return (
+            <div key={p.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 0',borderTop:`1px solid ${BORD}`}}>
+              <OvrCircle ovr={p.overall} size={36}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div onClick={()=>{setViewedPlayer(p); setViewedPlayerFrom('roster'); setScreen('playerDetail');}} style={{fontSize:'14px',fontWeight:700,color:TXT,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer'}}>{noEmoji(p.name)}</div>
+                <div style={{fontSize:'12px',color:MUTED,marginTop:'1px'}}>
+                  {noEmoji(`${p.pos} · ${p.age} · `)}<Ico e={sl.icon} size="1em"/> {sl.text}{noTalk ? '' : <> · asks <b style={{fontFamily:MONO,color:TXT2}}>~{fmtMoney(resignAsk(p))}</b></>}
+                </div>
+                <div style={{fontSize:'12px',fontWeight:700,color:oddsClr,marginTop:'1px'}}>
+                  {noEmoji(noTalk ? `Won't negotiate · ${odds}% he stays on his own` : `If you wait: ${odds}% he stays`)}
+                </div>
+              </div>
+              {noTalk
+                ? <span style={{flexShrink:0,fontSize:'12px',fontWeight:700,color:MUTED,padding:'0 6px'}}>Wants out</span>
+                : <button onClick={()=>offerExtension(p.id)} aria-label={`Re-sign ${p.name}`}
+                    style={{flexShrink:0,minHeight:'40px',padding:'0 16px',borderRadius:'8px',border:'none',background:WIN,color:'#FFFFFF',fontSize:'13px',fontWeight:800,cursor:'pointer',fontFamily:SYS_FONT}}>Re-sign</button>}
+            </div>
+          );
+        })}
+        {all.length > rows.length && (
+          <button onClick={()=>setResignAll(true)}
+            style={{width:'100%',minHeight:'40px',marginTop:'4px',borderRadius:'8px',border:`1px solid ${BORD}`,background:'transparent',color:TXT2,fontSize:'13px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
+            {noEmoji(`Show all ${all.length} expiring`)}
+          </button>
+        )}
+      </div>
+    );
+  };
 
   // =================== GM TRADE MACHINE ===================
 
@@ -37166,6 +37267,109 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setGmTradeResult(null);
   }
 
+  // Trade Block "shop a package": you pick players and/or picks to move, and
+  // every other team answers with the best return its GM would sign off on.
+  // Uses the same numbers as proposeGMTrade (style lean, own-star premium,
+  // relationship, sharpness), at the strict end of the acceptance range, so a
+  // listed offer is one they actually take. One offer per team, best first.
+  // Cash each team has used in trades this season ($M): s = sent, r = received.
+  const cashUsed = (teamId) => (gmCashLedger?.y === curSeasonYear && gmCashLedger.t?.[teamId]) || { s: 0, r: 0 };
+  // The most cash that can still move from payer to payee this season.
+  const cashRoom = (payerId, payeeId) => Math.max(0, Math.round(Math.min(tradeCashLimit() - cashUsed(payerId).s, tradeCashLimit() - cashUsed(payeeId).r) * 1000) / 1000);
+  const recordCash = (payerId, payeeId, m) => setGmCashLedger(prev => {
+    const t = { ...(prev?.y === curSeasonYear ? prev.t : {}) };
+    const a = t[payerId] || { s: 0, r: 0 }, b = t[payeeId] || { s: 0, r: 0 };
+    t[payerId] = { ...a, s: Math.round((a.s + m) * 1000) / 1000 };
+    t[payeeId] = { ...b, r: Math.round((b.r + m) * 1000) / 1000 };
+    return { y: curSeasonYear, t };
+  });
+
+  // Would this GM take the deal for sure? Same numbers as proposeGMTrade, at
+  // the strict end of its random range. Caches per call site (one render).
+  function makeRivalJudge() {
+    const tops = {};
+    const ownTopOf = (t) => tops[t.id] || (tops[t.id] = new Set([...t.roster].sort((a, b) => tradeValue(b) - tradeValue(a)).slice(0, 3).map(p => p.id)));
+    const barOf = (R) => 0.90 * (RIVAL_STYLES[R.style] || RIVAL_STYLES.shark).thr * (1 - R.rel / 800) * (1 + 0.10 * gmSharp(R)) * 1.01;
+    return (theirT, myPlayers, myPicks, theirPlayers, theirPicks = []) => {
+      const R = rivalGM(theirT.id);
+      if (R.rel <= -60) return false;
+      const getV = rivalValue(R.style, myPlayers, myPicks, { pv: pickValue });
+      const giveV = rivalValue(R.style, theirPlayers, theirPicks, { own: true, ownTop: ownTopOf(theirT), pv: pickValue });
+      return giveV > 0 ? getV / giveV >= barOf(R) : getV > 0;
+    };
+  }
+
+  function findPackageOffers(sel) {
+    const myT = teams.find(t => t.id === myTeamId);
+    if (!myT) return [];
+    const myPlayers = myT.roster.filter(p => sel.players.includes(p.id));
+    const myPicks = sel.picks.filter(k => pickOwner(k) === myTeamId);
+    if (!myPlayers.length && !myPicks.length) return [];
+    const cash = Math.max(0, sel.cash || 0);
+    const mySal = myPlayers.reduce((s, p) => s + (p.contract?.salary || 0), 0);
+    // A package with little trade value (a minimum contract, a late second) is
+    // a dump: taking it for nothing back is a real offer.
+    const pkgN = myPlayers.reduce((s, p) => s + tradeValue(p), 0) + myPicks.reduce((s, k) => s + pickValue(k), 0);
+    const isDump = pkgN <= 3;
+    // Never list a deal the other GM later feels he lost: on neutral value
+    // he must get at least 80% of what he gives (see proposeGMTrade's memory).
+    const maxN = (pkgN + cashValue(cash)) / 0.8;
+    const out = [];
+    for (const t of teams) {
+      if (t.id === myTeamId || !(t.roster || []).length) continue;
+      const R = rivalGM(t.id), RS = RIVAL_STYLES[R.style] || RIVAL_STYLES.shark;
+      if (R.rel <= -60) continue; // won't take your call
+      if (cash > cashRoom(myTeamId, t.id) + 1e-6) continue; // they've taken all the cash they can this season
+      const getV = rivalValue(R.style, myPlayers, myPicks, { pv: pickValue, cash });
+      if (getV <= 0) continue;
+      const bar = 0.90 * RS.thr * (1 - R.rel / 800) * (1 + 0.10 * gmSharp(R)) * 1.01;
+      const maxGive = getV / bar;
+      const ownTop = new Set([...t.roster].sort((a, b) => tradeValue(b) - tradeValue(a)).slice(0, 3).map(p => p.id));
+      // Unrounded piece values: the deal is judged on the rounded total, so
+      // summing rounded pieces could list an offer the GM then turns down.
+      const pool = t.roster.map(p => ({ p, v: rivalValue(R.style, [p], [], { own: true, ownTop, raw: true }), n: tradeValue(p) }))
+        .filter(x => x.v > 0 && Math.round(x.v) <= maxGive).sort((a, b) => b.v - a.v).slice(0, 12);
+      const pks = ownedPicks(t.id).map(k => ({ k, v: rivalValue(R.style, [], [k], { pv: pickValue, raw: true }), n: pickValue(k) })).filter(x => Math.round(x.v) <= maxGive);
+      const pickSets = [[], ...pks.map(x => [x])];
+      let best = null, dumpOk = false;
+      const tryCombo = (combo) => {
+        const myAfter = myT.roster.length - myPlayers.length + combo.length;
+        const theirAfter = t.roster.length - combo.length + myPlayers.length;
+        if (myAfter > MAX_ROSTER || myAfter < MIN_ROSTER || theirAfter < MIN_ROSTER) return;
+        const theirSal = combo.reduce((s, x) => s + (x.p.contract?.salary || 0), 0);
+        if (!tradeSalarySideOk(teamCap(t), theirSal, mySal) || !tradeSalarySideOk(teamCap(myT), mySal, theirSal)) return;
+        const cv = combo.reduce((s, x) => s + x.v, 0), cn = combo.reduce((s, x) => s + x.n, 0);
+        for (const ps of pickSets) {
+          const empty = !combo.length && !ps.length;
+          if (empty && !isDump) continue;
+          const v = Math.round(cv + ps.reduce((s, x) => s + x.v, 0));
+          if (v > maxGive || (!empty && v < maxGive * 0.6)) continue; // over their limit, or a lowball
+          const n = cn + ps.reduce((s, x) => s + x.n, 0);
+          if (n > maxN) continue;
+          if (empty) { dumpOk = true; continue; }
+          const pieces = combo.length + ps.length;
+          if (!best || n > best.n || (n === best.n && pieces < best.pieces)) best = { combo, ps, n, v, pieces };
+        }
+      };
+      tryCombo([]);
+      for (let i = 0; i < pool.length; i++) {
+        tryCombo([pool[i]]);
+        for (let j = i + 1; j < pool.length; j++) {
+          tryCombo([pool[i], pool[j]]);
+          for (let k = j + 1; k < pool.length; k++) tryCombo([pool[i], pool[j], pool[k]]);
+        }
+      }
+      if (best) out.push({ team: t, gm: R, styleLabel: RS.label, players: best.combo.map(x => x.p), picks: best.ps.map(x => x.k), cash, value: best.n, theirView: Math.round(best.v), yourView: getV });
+      else if (dumpOk) out.push({ team: t, gm: R, styleLabel: RS.label, players: [], picks: [], cash, value: 0, theirView: 0, yourView: getV, dump: true });
+      if (best && dumpOk) out.push({ team: t, gm: R, styleLabel: RS.label, players: [], picks: [], cash, value: 0, theirView: 0, yourView: getV, dump: true, alt: true });
+    }
+    // A dump lists the best returns first, then up to two teams that would
+    // simply take it (clearing the roster spot and the salary).
+    const deals = out.filter(o => !o.dump).sort((a, b) => b.value - a.value);
+    const dumps = out.filter(o => o.dump && !deals.slice(0, 4).some(d => d.team.id === o.team.id)).sort((a, b) => (a.alt ? 1 : 0) - (b.alt ? 1 : 0) || teamCap(a.team) - teamCap(b.team));
+    return isDump ? [...deals.slice(0, 4), ...dumps.slice(0, Math.max(2, 6 - Math.min(4, deals.length)))].slice(0, 6) : deals.slice(0, 6);
+  }
+
   function proposeGMTrade() {
     if (tradeLocked) { notify('🔒 The trade deadline has passed. Trades reopen once the Finals are over.'); return; }
     const myT   = teams.find(t=>t.id===myTeamId);
@@ -37176,8 +37380,13 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const myPicks      = gmOfferPicks.filter(k => pickOwner(k) === myTeamId);
     const theirPicks   = gmRequestPicks.filter(k => pickOwner(k) === gmTradeTeam);
     if (!myPlayers.length && !theirPlayers.length && !myPicks.length && !theirPicks.length) { notify('Add players or picks to the trade!'); return; }
-    const myVal    = myPlayers.reduce((s,p)=>s+tradeValue(p),0) + myPicks.reduce((s,k)=>s+pickValue(k),0);
-    const theirVal = theirPlayers.reduce((s,p)=>s+tradeValue(p),0) + theirPicks.reduce((s,k)=>s+pickValue(k),0);
+    const cashOut = Math.max(0, gmTradeCash), cashIn = Math.max(0, -gmTradeCash);
+    if (cashOut > cashRoom(myTeamId, theirT.id) + 1e-6 || cashIn > cashRoom(theirT.id, myTeamId) + 1e-6) {
+      setGmTradeResult({ accepted:false, msg:`That's over the cash limit. Each team can send, and separately receive, up to ${fmtMoney(tradeCashLimit())} in trades per season.` });
+      return;
+    }
+    const myVal    = myPlayers.reduce((s,p)=>s+tradeValue(p),0) + myPicks.reduce((s,k)=>s+pickValue(k),0) + cashValue(cashOut);
+    const theirVal = theirPlayers.reduce((s,p)=>s+tradeValue(p),0) + theirPicks.reduce((s,k)=>s+pickValue(k),0) + cashValue(cashIn);
     const mySal    = myPlayers.reduce((s,p)=>s+p.contract.salary,0);
     const theirSal = theirPlayers.reduce((s,p)=>s+p.contract.salary,0);
     // Each side's incoming salary must match what it sends out (125% + pad)
@@ -37189,9 +37398,10 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // him moves the bar (a warm relationship makes a deal easier).
     const R = rivalGM(theirT.id), RS = RIVAL_STYLES[R.style] || RIVAL_STYLES.shark;
     const ownTop = new Set([...theirT.roster].sort((a,b)=>tradeValue(b)-tradeValue(a)).slice(0,3).map(p=>p.id));
-    const getV  = rivalValue(R.style, myPlayers, myPicks, { pv: pickValue });
-    const giveV = rivalValue(R.style, theirPlayers, theirPicks, { own:true, ownTop, pv: pickValue });
+    const getV  = rivalValue(R.style, myPlayers, myPicks, { pv: pickValue, cash: cashOut });
+    const giveV = rivalValue(R.style, theirPlayers, theirPicks, { own:true, ownTop, pv: pickValue, cash: cashIn });
     const fairness = giveV>0 ? getV/giveV : (getV>0 ? 2 : 0);
+    const dumpHint = myPlayers.some(p => tradeBurden(p) > 0) ? ` Taking on ${myPlayers.length > 1 ? 'players they don\'t need' : lastNameOf(myPlayers.find(p => tradeBurden(p) > 0)?.name, 'him')} costs them a roster spot${myPlayers.some(p => tradeBurden(p) > 1.5) ? ' and money' : ''}: add cash or a second-round pick.` : '';
     // Sharp executives (Presti, Auerbach, West...) want a clearly better return.
     const threshold = rf(0.80,0.90) * RS.thr * (1 - R.rel / 800) * (1 + 0.10 * gmSharp(R));
     let accepted=false, msg='';
@@ -37205,14 +37415,14 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     else if (fairness>=threshold) {
       accepted=true;
       msg = fairness>=1.15 ? `Done! ${R.name} knows the ${theirT.name} are getting the better end of this one.` : `${R.name} accepts. Both sides see value.`;
-    } else if (theirVal===0) {
-      msg=`${R.name} passes: the ${theirT.name} don't see value in taking that on for nothing.`;
+    } else if (theirVal===0 || (giveV <= 0 && getV <= 0)) {
+      msg=`${R.name} passes: the ${theirT.name} don't see value in taking that on for nothing.${dumpHint}`;
     } else if (fairness>=0.70) {
       const hint = R.style==='builder' ? ' Young players or picks would get a listen.' : R.style==='winnow' ? ' Players who help now matter more than picks.' : R.style==='loyalist' && theirPlayers.some(p=>ownTop.has(p.id)) ? ' The team\'s best players cost extra with this GM.' : R.style==='gambler' ? ' Upside is what gets this GM excited.' : R.style==='shark' ? ' This GM wants to win the deal clearly.' : '';
       const sharpHint = gmSharp(R) >= 0.7 ? ' One of the sharpest front offices in the league: it takes a clear win to get a deal done here.' : '';
       msg = showValues
-        ? `${R.name} declines. By that front office's count your package (${getV}) doesn't match what they give up (${giveV}).${hint}${sharpHint}`
-        : `${R.name} declines. Your package doesn't match what the ${theirT.name} give up.${hint}${sharpHint}`;
+        ? `${R.name} declines. By that front office's count your package (${getV}) doesn't match what they give up (${giveV}).${dumpHint || hint}${sharpHint}`
+        : `${R.name} declines. Your package doesn't match what the ${theirT.name} give up.${dumpHint || hint}${sharpHint}`;
     } else {
       msg = showValues
         ? `Hard no from ${R.name}, who values the ${theirT.name}' side at ${giveV}; your offer of ${getV} isn't close.`
@@ -37232,9 +37442,11 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
         msg += ` They waived ${waived.map(p=>p.name).join(' and ')} to make room.`;
       }
       const ut = teams.map(t=>t.id===myTeamId?{...t,roster:myRNew}:t.id===gmTradeTeam?{...t,roster:theirRNew}:t);
-      setTeams(ut); setGmOffer([]); setGmRequest([]); setGmOfferPicks([]); setGmRequestPicks([]);
+      setTeams(ut); setGmOffer([]); setGmRequest([]); setGmOfferPicks([]); setGmRequestPicks([]); setGmTradeCash(0);
       setGmTradeCount(c => c + 1);
-      logTrade({ partners:[theirT], got:[...theirPlayers.map(p=>({p, to:myTeamId})), ...theirPicks.map(k=>({key:k, from:theirT.id, to:myTeamId}))], gave:[...myPlayers.map(p=>({p, to:theirT.id})), ...myPicks.map(k=>({key:k, from:myTeamId, to:theirT.id}))] });
+      if (cashOut > 0) { recordCash(myTeamId, theirT.id, cashOut); msg += ` You pay ${fmtMoney(cashOut)} in cash.`; }
+      if (cashIn > 0)  { recordCash(theirT.id, myTeamId, cashIn);  msg += ` They pay you ${fmtMoney(cashIn)} in cash.`; }
+      logTrade({ partners:[theirT], got:[...theirPlayers.map(p=>({p, to:myTeamId})), ...theirPicks.map(k=>({key:k, from:theirT.id, to:myTeamId})), ...(cashIn > 0 ? [{cash:cashIn, to:myTeamId}] : [])], gave:[...myPlayers.map(p=>({p, to:theirT.id})), ...myPicks.map(k=>({key:k, from:myTeamId, to:theirT.id})), ...(cashOut > 0 ? [{cash:cashOut, to:theirT.id}] : [])] });
       // The other GM remembers how the deal looks on neutral value.
       {
         const ratio = theirVal > 0 ? myVal / theirVal : 2;
@@ -37872,9 +38084,17 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       sub = 'Play your games, sim a round, or sim straight to a champion.';
       primary = { label: '🏀 Back to the playoffs →', short: '🏀 Playoffs', on: ()=>setScreen('gmPlayoffs') };
     } else {
-      title = 'Offseason';
-      sub = `${gmPlayoffData.champion.city} ${gmPlayoffData.champion.name} are champions. Trades are open again. Re-sign your players and check free agency, then start next season.`;
-      primary = { label: `▶ Start Season ${season+1}`, short: `▶ Start Season ${season+1}`, on: gmNextSeason };
+      const expN = (teams.find(t=>t.id===myTeamId)?.roster||[]).filter(p=>(p.contract?.years||0)<=1 && (p.satisfaction??70)>=30).length;
+      if (expN > 0) {
+        title = `Re-sign your players · ${expN} contract${expN>1?'s':''} up`;
+        sub = `${gmPlayoffData.champion.city} ${gmPlayoffData.champion.name} are champions. Before Season ${season+1}, re-sign the players you want to keep. Anyone you don't decides for himself and may leave.`;
+        primary = { label: `✍️ Review ${expN} expiring contract${expN>1?'s':''} →`, short: '✍️ Re-sign players', on: ()=>go('roster') };
+        extras = [{ label: `▶ Start Season ${season+1} anyway`, on: gmNextSeason }];
+      } else {
+        title = 'Offseason';
+        sub = `${gmPlayoffData.champion.city} ${gmPlayoffData.champion.name} are champions. Trades are open again. Check free agency, then start next season.`;
+        primary = { label: `▶ Start Season ${season+1}`, short: `▶ Start Season ${season+1}`, on: gmNextSeason };
+      }
     }
     return { title, sub, primary, extras };
   }
@@ -41201,6 +41421,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
         <Container>
           <div style={{paddingTop:'12px'}}>
 
+            {mode==='gm' && expiring.length > 0 && resignList(expiring, { offseason: !!gmPlayoffData?.champion, urgent: !!gmPlayoffData || ((gmSeason?.wins||0)+(gmSeason?.losses||0)) >= DEADLINE_TRADE })}
+
             {mode==='gm' && (() => {
               const em = effectiveMinutes(myTeam||{roster:[]});
               const noMin = myTeam?.minutes ? roster.filter(p => !(em[p.id] > 0)).length : 0;
@@ -41334,7 +41556,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                         {isExp && (
                           <button onClick={()=>offerExtension(p.id)}
                             style={{flex:'1 1 110px',background:'transparent',color:WIN,border:`1px solid ${WIN}73`,borderRadius:'8px',padding:'8px 10px',fontSize:'12px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
-                            Offer extension
+                            Re-sign
                           </button>
                         )}
                         <HoldButton onConfirm={()=>releasePlayer(p.id)} onTap={()=>notify(`Hold Release to cut ${p.name}${(p.contract?.salary||0) > getMinSalary() ? ` — his ${fmtMoney(p.contract.salary)}/yr stays on your cap` : ''}`)}
@@ -42161,6 +42383,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   if (screen==='gmDashboard') {
     const gs = gmSeason||{wins:0,losses:0,gamesLeft:SEASON_G};
     const gmGamesPlayed = gs.wins + gs.losses;
+    // Expiring contracts move up under What's next from the trade deadline on.
+    const resignUrgent = gmGamesPlayed >= DEADLINE_TRADE && (myTeam?.roster||[]).some(p=>(p.contract?.years||0)<=1);
     const phase = getSeasonPhase({ gamesPlayed: gmGamesPlayed, gIdx: gmGamesPlayed, scheduleLen:SEASON_G, playoffs: gmPhasePlayoffs });
     const confTeams = myTeam ? teams.filter(t=>t.conf===myTeam.conf).sort((a,b)=>b.wins-a.wins||a.losses-b.losses) : [];
     const myRank = confTeams.findIndex(t=>t.id===myTeamId)+1||'—';
@@ -42274,6 +42498,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                 </div>
               );
             })()}
+
+            {/* ── RE-SIGN: up top once the extension deadline nears and through the offseason ── */}
+            {resignUrgent && resignList((myTeam?.roster||[]).filter(p=>(p.contract?.years||0)<=1), { offseason: !!gmPlayoffData?.champion, urgent: true })}
 
             {/* ── SEASON START: how each of your players changed since last season ── */}
             {gmGamesPlayed === 0 && (() => {
@@ -42588,7 +42815,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               </div>
               {/* Live projection (it showed the preseason estimate all year, so
                   trades, wins and ticket prices never moved it). Tap for Finances. */}
-              {(() => { const lf = computeFinancials(myTeam, ticketPrice, { teams, budget: gmBudget }); return (
+              {(() => { const lf = computeFinancials(myTeam, ticketPrice, { teams, budget: gmBudget, tradeCash: cashUsed(myTeamId) }); return (
                 <button data-arrow="tile" onClick={()=>go('gmFinances')} aria-label="Open finances"
                   style={{...card({padding:'12px',textAlign:'center'}),cursor:'pointer',fontFamily:SYS_FONT,width:'100%',minWidth:0}}>
                   <div style={{fontSize:'11px',color:MUTED,fontWeight:700,letterSpacing:'1px',marginBottom:'4px'}}>PROFIT ›</div>
@@ -42681,28 +42908,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                     </div>
                   )}
 
-                  {/* Expiring contract alerts */}
-                  {expiring.length>0 && (
-                    <div style={card({padding:'12px 0',marginBottom:'10px'})}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:'8px',marginBottom:'6px'}}>
-                        <span style={{fontSize:'11px',fontWeight:700,letterSpacing:'0.8px',textTransform:'uppercase',color:MUTED}}>Expiring contracts · {expiring.length}</span>
-                        <span style={{fontSize:'11.5px',fontWeight:700,color:legible(ACC_T,'light')}}>Act before the offseason</span>
-                      </div>
-                      {expiring.map(p=>{
-                        const sl2=satLabel(p.satisfaction??70);
-                        return (
-                          <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderTop:`1px solid ${BORD}`}}>
-                            <span style={{fontSize:'13px',color:TXT,fontWeight:500}}><PlayerName player={p}>{p.name}</PlayerName></span>
-                            <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
-                              <span style={{fontSize:'11px',color:legible(sl2.clr,'light'),fontWeight:700}}><Ico e={sl2.icon} size="1em"/> {sl2.text}</span>
-                              <button onClick={()=>{setGmChecklist(c=>({...c,roster:true}));go('roster');}}
-                                style={{fontSize:'12px',fontWeight:700,background:'transparent',color:WIN,border:`1px solid ${WIN}73`,borderRadius:'8px',padding:'0 12px',minHeight:'34px',cursor:'pointer',fontFamily:SYS_FONT}}>Extend</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/* Expiring contracts: here early in the season; near the top once the deadline nears (see below What's next) */}
+                  {expiring.length>0 && !resignUrgent && resignList(expiring)}
                 </>
               );
             })()}
@@ -43029,7 +43236,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
 
     return (
       <Wrap>
-        <Header title={`${isExt?'Extension':'Negotiating'}: ${fa.name}`} onBack={()=>{setNegoFA(null); setNegoExtId(null); go(backTo);}} />
+        <Header title={`${isExt?'Re-sign':'Negotiating'}: ${fa.name}`} onBack={()=>{setNegoFA(null); setNegoExtId(null); go(backTo);}} />
         <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
         <Container>
           <div style={{paddingTop:'12px'}}>
@@ -43082,7 +43289,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
             {negoStatus === 'accepted' && (
               <div style={{...card({padding:'16px'}),textAlign:'center',borderColor:WIN}}>
                 <div style={{fontSize:'14px',fontWeight:800,color:WIN,marginBottom:'10px'}}>Deal agreed: {fmtMoney(negoOffer)}/yr · {negoYears}yr</div>
-                <Btn onClick={finalizeSign}>{noEmoji(isExt ? 'Sign the Extension' : 'Finalize Signing')}</Btn>
+                <Btn onClick={finalizeSign}>{noEmoji(isExt ? 'Sign the New Deal' : 'Finalize Signing')}</Btn>
               </div>
             )}
 
@@ -45664,8 +45871,10 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const myPickList   = ownedPicks(myTeamId), theirPickList = ownedPicks(theirT.id);
     const myOPicks     = gmOfferPicks.filter(k => myPickList.includes(k));
     const theirRPicks  = gmRequestPicks.filter(k => theirPickList.includes(k));
-    const myVal    = myOPlayers.reduce((s,p)=>s+tradeValue(p),0) + myOPicks.reduce((s,k)=>s+pickValue(k),0);
-    const theirVal = theirRPlayers.reduce((s,p)=>s+tradeValue(p),0) + theirRPicks.reduce((s,k)=>s+pickValue(k),0);
+    const cashOut = Math.max(0, gmTradeCash), cashIn = Math.max(0, -gmTradeCash);
+    const roomOut = cashRoom(myTeamId, theirT.id), roomIn = cashRoom(theirT.id, myTeamId);
+    const myVal    = myOPlayers.reduce((s,p)=>s+tradeValue(p),0) + myOPicks.reduce((s,k)=>s+pickValue(k),0) + cashValue(cashOut);
+    const theirVal = theirRPlayers.reduce((s,p)=>s+tradeValue(p),0) + theirRPicks.reduce((s,k)=>s+pickValue(k),0) + cashValue(cashIn);
     const PickChip = ({k, owner, selected, onToggle, side}) => {
       const slot = pickProjSlot(k), r1 = k.split(':')[1] === '1';
       const c = side==='my' ? ACC : TXT2;
@@ -45682,7 +45891,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     };
     const R = rivalGM(theirT.id), RS = RIVAL_STYLES[R.style] || RIVAL_STYLES.shark, RL = relLabel(R.rel);
     const ownTop = new Set([...theirT.roster].sort((a,b)=>tradeValue(b)-tradeValue(a)).slice(0,3).map(p=>p.id));
-    const rGet = rivalValue(R.style, myOPlayers, myOPicks, { pv: pickValue }), rGive = rivalValue(R.style, theirRPlayers, theirRPicks, { own:true, ownTop, pv: pickValue });
+    const rGet = rivalValue(R.style, myOPlayers, myOPicks, { pv: pickValue, cash: cashOut }), rGive = rivalValue(R.style, theirRPlayers, theirRPicks, { own:true, ownTop, pv: pickValue, cash: cashIn });
     const fairness = rGive>0 ? rGet/rGive : (rGet>0 ? 2 : 0) / (RS.thr * (1 - R.rel / 800));
     const mySalOut = myOPlayers.reduce((s,p)=>s+p.contract.salary,0), theirSalOut = theirRPlayers.reduce((s,p)=>s+p.contract.salary,0);
     const salLegal = tradeSalarySideOk(teamCap(theirT), theirSalOut, mySalOut) && tradeSalarySideOk(teamCap(myT), mySalOut, theirSalOut);
@@ -45721,25 +45930,67 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:'10px',marginBottom:'10px'}}>
                 <div style={{background:CARD,borderRadius:'8px',padding:'10px'}}>
                   <div style={{fontSize:'11px',color:MUTED,fontWeight:800,letterSpacing:'0.5px',marginBottom:'6px',textAlign:'center'}}>YOU SEND</div>
-                  {myOPlayers.length===0 && myOPicks.length===0 ? <div style={{fontSize:'12px',color:MUTED,textAlign:'center'}}>—</div> : myOPlayers.map(p=>(
+                  {myOPlayers.length===0 && myOPicks.length===0 && !cashOut ? <div style={{fontSize:'12px',color:MUTED,textAlign:'center'}}>—</div> : myOPlayers.map(p=>(
                     <div key={p.id} style={{marginBottom:'4px'}}>
                       <div style={{fontSize:'12.5px',fontWeight:700,color:TXT}}>{p.name}</div>
                       <div style={{fontSize:'11px',color:MUTED}}>OVR {p.overall} · {fmtMoney(p.contract.salary)}</div>
                     </div>
                   ))}
                   {myOPicks.map(k=>(<div key={k} style={{fontSize:'12px',fontWeight:700,color:TXT,marginBottom:'4px'}}>🎟 {pickLabel(k, myTeamId)}</div>))}
+                  {cashOut>0 && <div style={{fontSize:'12px',fontWeight:700,color:TXT,marginBottom:'4px'}}>💵 {fmtMoney(cashOut)} cash</div>}
                 </div>
                 <div style={{background:CARD,borderRadius:'8px',padding:'10px'}}>
                   <div style={{fontSize:'11px',color:MUTED,fontWeight:800,letterSpacing:'0.5px',marginBottom:'6px',textAlign:'center'}}>YOU RECEIVE</div>
-                  {theirRPlayers.length===0 && theirRPicks.length===0 ? <div style={{fontSize:'12px',color:MUTED,textAlign:'center'}}>—</div> : theirRPlayers.map(p=>(
+                  {theirRPlayers.length===0 && theirRPicks.length===0 && !cashIn ? <div style={{fontSize:'12px',color:MUTED,textAlign:'center'}}>—</div> : theirRPlayers.map(p=>(
                     <div key={p.id} style={{marginBottom:'4px'}}>
                       <div style={{fontSize:'12.5px',fontWeight:700,color:TXT}}>{p.name}</div>
                       <div style={{fontSize:'11px',color:MUTED}}>OVR {p.overall} · {fmtMoney(p.contract.salary)}</div>
                     </div>
                   ))}
                   {theirRPicks.map(k=>(<div key={k} style={{fontSize:'12px',fontWeight:700,color:TXT,marginBottom:'4px'}}>🎟 {pickLabel(k, theirT.id)}</div>))}
+                  {cashIn>0 && <div style={{fontSize:'12px',fontWeight:700,color:TXT,marginBottom:'4px'}}>💵 {fmtMoney(cashIn)} cash</div>}
                 </div>
               </div>
+              {/* Cash: either side can pay (real rule: up to 5.15% of the cap sent, and received, per season) */}
+              {(() => {
+                const dir = gmTradeCash > 0 ? 'send' : gmTradeCash < 0 ? 'ask' : 'none';
+                const room = dir === 'send' ? roomOut : roomIn;
+                const steps = tradeCashSteps().filter(m => m <= room + 1e-6);
+                const amt = Math.abs(gmTradeCash);
+                const setDir = (d) => { setGmTradeResult(null); if (d === 'none') return setGmTradeCash(0); const r = d === 'send' ? roomOut : roomIn; const st = tradeCashSteps().filter(m => m <= r + 1e-6); if (!st.length) return; const m = st.find(x => x >= (amt || st[Math.min(3, st.length-1)])) ?? st[st.length-1]; setGmTradeCash(d === 'send' ? m : -m); };
+                const stepBy = (k) => { const i = steps.findIndex(m => Math.abs(m - amt) < 1e-6); const j = clamp((i < 0 ? 0 : i) + k, 0, steps.length - 1); setGmTradeResult(null); setGmTradeCash((dir === 'send' ? 1 : -1) * steps[j]); };
+                const seg = (on) => ({flex:1,minHeight:'36px',border:'none',borderRadius:'6px',background:on?ACC:'transparent',color:on?'white':TXT2,fontSize:'12.5px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT});
+                const stepBtn = {width:'36px',height:'36px',borderRadius:'8px',border:`1px solid ${LINE2}`,background:'transparent',color:TXT,fontSize:'18px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT,flexShrink:0};
+                return (
+                  <div style={{borderTop:`1px solid ${BORD}`,paddingTop:'10px',marginBottom:'10px'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}}>
+                      <span style={{fontSize:'11px',color:MUTED,fontWeight:800,letterSpacing:'0.5px'}}>CASH</span>
+                      <span style={{fontSize:'11px',color:MUTED}}>Limit {fmtMoney(tradeCashLimit())} each way per season</span>
+                    </div>
+                    <div role="group" aria-label="Cash in this trade" style={{display:'flex',gap:'4px',padding:'3px',borderRadius:'8px',border:`1px solid ${LINE2}`}}>
+                      <button onClick={()=>setDir('send')} disabled={roomOut<=0} aria-pressed={dir==='send'} style={{...seg(dir==='send'),opacity:roomOut<=0?0.4:1}}>You pay</button>
+                      <button onClick={()=>setDir('none')} aria-pressed={dir==='none'} style={seg(dir==='none')}>None</button>
+                      <button onClick={()=>setDir('ask')} disabled={roomIn<=0} aria-pressed={dir==='ask'} style={{...seg(dir==='ask'),opacity:roomIn<=0?0.4:1}}>They pay</button>
+                    </div>
+                    {dir !== 'none' && (
+                      <div style={{display:'flex',alignItems:'center',gap:'10px',marginTop:'8px'}}>
+                        <button onClick={()=>stepBy(-1)} aria-label="Less cash" style={stepBtn}>−</button>
+                        <div style={{flex:1,textAlign:'center'}}>
+                          <div style={{fontSize:'17px',fontWeight:800,color:TXT,fontVariantNumeric:'tabular-nums'}}>{fmtMoney(amt)}</div>
+                          <div style={{fontSize:'11px',color:MUTED}}>{dir==='send' ? `to the ${theirT.name}` : `from the ${theirT.name}`}{showValues ? ` · value ${cashValue(amt)}` : ''}</div>
+                        </div>
+                        <button onClick={()=>stepBy(1)} aria-label="More cash" style={stepBtn}>+</button>
+                      </div>
+                    )}
+                    {dir === 'none' && myOPlayers.some(p => tradeBurden(p) > 0) && roomOut > 0 && (
+                      <div style={{fontSize:'12px',color:TXT2,marginTop:'6px',lineHeight:1.4}}>Moving a player they don't need? Teams want something for the roster spot. Paying cash is how real teams do it.</div>
+                    )}
+                    {(roomOut < tradeCashLimit() || roomIn < tradeCashLimit()) && (
+                      <div style={{fontSize:'11px',color:MUTED,marginTop:'6px'}}>Left this season: {fmtMoney(roomOut)} you can pay them · {fmtMoney(roomIn)} they can pay you</div>
+                    )}
+                  </div>
+                );
+              })()}
               {(myOPlayers.length>0||theirRPlayers.length>0||myOPicks.length>0||theirRPicks.length>0) && fairLabel.t && (
                 <div style={{textAlign:'center',fontWeight:700,fontSize:'13px',color:fairLabel.c}}>
                   {fairLabel.t}
@@ -45819,7 +46070,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   // =================== GM TRADE TEAM PICKER ===================
   // ═══════════════════ TRADE BLOCK ═══════════════════
   if (screen === 'tradeBlock') {
-    const suggestions = findTradeSuggestions(myTeam, teams, { picks: tradeLocked ? [] : ownedPicks(myTeamId).map(k => ({ k, v: pickValue(k) })) });
+    const judge = makeRivalJudge();
+    const suggestions = findTradeSuggestions(myTeam, teams, { picks: tradeLocked ? [] : ownedPicks(myTeamId).map(k => ({ k, v: pickValue(k) })), accepts: (t, combo, pks, target) => judge(t, combo, pks, [target]) });
     const NEED_LABEL = { scoring:'Scoring', defense:'Defense', rebounding:'Rebounding', passing:'Playmaking' };
     const fullMarket = getLeagueMarket(teams, myTeamId);
     const market = fullMarket.filter(m =>
@@ -45832,6 +46084,109 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
         <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
         <Container>
           <div style={{paddingTop:'14px'}}>
+
+            {/* ── Shop a package: pick what you'd move, see what each team gives back ── */}
+            {(() => {
+              const myRoster = [...(myTeam?.roster||[])].sort((a,b)=>b.overall-a.overall);
+              const myPks = ownedPicks(myTeamId);
+              const cashMax = Math.max(0, tradeCashLimit() - cashUsed(myTeamId).s);
+              const liveSel = { players: shopSel.players.filter(id => myRoster.some(p => p.id === id)), picks: shopSel.picks.filter(k => myPks.includes(k)), cash: Math.min(shopSel.cash || 0, cashMax) };
+              const nSel = liveSel.players.length + liveSel.picks.length;
+              const toggle = (key, id) => { setShopSel(s => ({ ...s, [key]: s[key].includes(id) ? s[key].filter(x=>x!==id) : [...s[key], id] })); setShopOffers(null); };
+              const chip = (on) => ({padding:'0 11px',minHeight:'36px',borderRadius:'8px',border:`1px solid ${on?ACC:LINE2}`,background:on?ACC+'22':'transparent',color:on?ACC_T:TXT2,fontSize:'12.5px',fontWeight:on?700:600,cursor:'pointer',fontFamily:SYS_FONT,whiteSpace:'nowrap'});
+              const pkgPlayers = myRoster.filter(p=>shopSel.players.includes(p.id));
+              const pkgPicks = shopSel.picks.filter(k=>myPks.includes(k));
+              const pkgVal = pkgPlayers.reduce((s,p)=>s+tradeValue(p),0) + pkgPicks.reduce((s,k)=>s+pickValue(k),0);
+              return (
+                <div style={{marginBottom:'22px'}}>
+                  <div style={{fontSize:'11px',color:MUTED,fontWeight:700,letterSpacing:'1.5px',marginBottom:'4px'}}>SHOP A PACKAGE</div>
+                  <div style={{fontSize:'12.5px',color:TXT2,marginBottom:'10px',lineHeight:1.45}}>Choose players or picks you'd move. Every team tells you the best they'd give back.</div>
+                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'8px'}}>
+                    {myRoster.map(p=>(
+                      <button key={p.id} onClick={()=>toggle('players', p.id)} aria-pressed={shopSel.players.includes(p.id)} style={chip(shopSel.players.includes(p.id))}>
+                        {lastNameOf(p.name, p.name)} <span style={{opacity:0.7,fontWeight:600}}>{p.overall}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {!tradeLocked && myPks.length>0 && (
+                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
+                      {myPks.map(k=>(
+                        <button key={k} onClick={()=>toggle('picks', k)} aria-pressed={shopSel.picks.includes(k)} style={chip(shopSel.picks.includes(k))}>
+                          {pickLabel(k, myTeamId).replace(' round', '')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!tradeLocked && cashMax > 0 && (() => {
+                    const st = tradeCashSteps(), opts = [0, st[2], st[4], st[7], cashMax].filter((m, i, a) => m <= cashMax + 1e-6 && a.findIndex(x => Math.abs(x - m) < 1e-6) === i);
+                    return (
+                      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',marginBottom:'12px'}}>
+                        <span style={{fontSize:'12px',color:MUTED,fontWeight:700,marginRight:'2px'}}>💵 Add cash</span>
+                        {opts.map(m => { const on = Math.abs((liveSel.cash||0) - m) < 1e-6; return (
+                          <button key={m} onClick={()=>{ setShopSel(s => ({ ...s, cash: m })); setShopOffers(null); }} aria-pressed={on} style={chip(on)}>{m ? fmtMoney(m) : 'None'}</button>
+                        ); })}
+                      </div>
+                    );
+                  })()}
+                  {tradeLocked ? (
+                    <div style={{fontSize:'12.5px',color:MUTED}}>🔒 The trade deadline has passed. Trades reopen once the Finals are over.</div>
+                  ) : (
+                    <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                      <button disabled={!nSel} onClick={()=>setShopOffers({ at: teams, list: findPackageOffers(liveSel) })}
+                        style={{background:nSel?ACC:BORD,color:nSel?'white':MUTED,border:'none',borderRadius:'8px',padding:'0 18px',minHeight:'42px',fontSize:'13.5px',fontWeight:700,cursor:nSel?'pointer':'default',fontFamily:SYS_FONT}}>
+                        {nSel ? `Find offers for ${nSel===1?'this':'these '+nSel}${liveSel.cash ? ` + ${fmtMoney(liveSel.cash)}` : ''}` : 'Pick something to shop'}
+                      </button>
+                      {nSel>0 && <button onClick={()=>{ setShopSel({players:[],picks:[],cash:0}); setShopOffers(null); }} style={{background:'transparent',border:'none',color:TXT2,fontSize:'12.5px',fontWeight:600,cursor:'pointer',fontFamily:SYS_FONT,minHeight:'42px',padding:'0 8px'}}>Clear</button>}
+                    </div>
+                  )}
+                  {shopOffers && shopOffers.at === teams && !tradeLocked && (shopOffers.list.length === 0 ? (
+                    <div style={{fontSize:'13px',color:MUTED,padding:'14px 0 0'}}>No team has a deal that works for that package. Salaries may not match, or nobody values it enough. Try adding or swapping a piece{cashMax > 0 && !liveSel.cash ? ', or add cash' : ''}.</div>
+                  ) : (
+                    <div style={{marginTop:'12px'}}>
+                      {shopOffers.list.map(o => {
+                        const ratio = o.value / Math.max(1, pkgVal);
+                        const tag = !o.players.length && !o.picks.length ? {t:'Salary dump', c:TXT2} : ratio >= 1.1 ? {t:'Great return', c:WIN} : ratio >= 0.9 ? {t:'Fair return', c:WIN} : {t:'Below value', c:ACC_T};
+                        return (
+                          <div key={o.team.id} style={{padding:'14px 0',borderTop:`1px solid ${BORD}`}}>
+                            <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                              <Badge text={o.team.id} clr={o.team.clr}/>
+                              <div style={{fontSize:'12px',color:MUTED,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.gm.name} · {o.styleLabel}</div>
+                              {showValues && <span style={{marginLeft:'auto',fontSize:'11px',fontWeight:700,color:tag.c,whiteSpace:'nowrap'}}>{tag.t}</span>}
+                            </div>
+                            <div style={{fontSize:'11px',color:MUTED,fontWeight:700,marginBottom:'3px'}}>THEY OFFER</div>
+                            {!o.players.length && !o.picks.length && (
+                              <div style={{fontSize:'13.5px',color:TXT,fontWeight:700,lineHeight:1.5}}>Nothing back <span style={{fontSize:'12px',color:MUTED,fontWeight:500}}>· they take {pkgPlayers.length ? `${fmtMoney(pkgPlayers.reduce((s,p)=>s+(p.contract?.salary||0),0))} in salary and the roster spot${pkgPlayers.length>1?'s':''}` : 'it off your hands'}</span></div>
+                            )}
+                            {o.players.map(p=>(
+                              <div key={p.id} style={{fontSize:'13.5px',color:TXT,fontWeight:700,lineHeight:1.5}}>
+                                <PlayerName player={p}>{p.name}</PlayerName> <span style={{fontSize:'12px',color:MUTED,fontWeight:500}}>{p.pos} · OVR {p.overall} · Age {p.age} · {fmtMoney(p.contract?.salary||0)}</span>
+                              </div>
+                            ))}
+                            {o.picks.map(k=>(
+                              <div key={k} style={{fontSize:'13px',color:ACC_T,fontWeight:700,lineHeight:1.5}}>{o.players.length?'+ ':''}{pickLabel(k, o.team.id)} pick</div>
+                            ))}
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:'8px',gap:'8px'}}>
+                              <span style={{fontSize:'11px',color:MUTED}}>{o.cash ? `You add ${fmtMoney(o.cash)} cash` : ''}{o.cash && showValues ? ' · ' : ''}{showValues ? `Value ${o.value} for your ${pkgVal}` : ''}</span>
+                              <button onClick={()=>{
+                                  setGmTradeTeam(o.team.id); setGmTradeTeam2(null); setGmTradeAssign({});
+                                  setGmOffer(pkgPlayers.map(p=>p.id)); setGmRequest(o.players.map(p=>p.id));
+                                  setGmOfferPicks(pkgPicks); setGmRequestPicks(o.picks);
+                                  setGmTradeCashSt({ team: o.team.id, m: o.cash || 0 });
+                                  setGmTradeResult(null); setShopOffers(null);
+                                  setScreen('gmTrade');
+                                }}
+                                style={{background:ACC,color:'white',border:'none',borderRadius:'8px',padding:'0 18px',minHeight:'40px',fontSize:'13px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT,flexShrink:0}}>
+                                Review & Propose →
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'10px'}}>
               <div style={{fontSize:'11px',color:MUTED,fontWeight:700,letterSpacing:'1.5px'}}>TRADE OPPORTUNITIES</div>
@@ -48266,7 +48621,7 @@ const CONF_CLR = { get East(){ return TXT2; }, get West(){ return TXT2; }, get F
 
   // ═══════════════════ FINANCES (TICKET PRICING) ═══════════════════
   if (screen === 'gmFinances') {
-    const fin = computeFinancials(myTeam, ticketPrice, { teams, budget: gmBudget });
+    const fin = computeFinancials(myTeam, ticketPrice, { teams, budget: gmBudget, tradeCash: cashUsed(myTeamId) });
     const best = bestTicketPrice(myTeam, teams, gmBudget);
     const setPrice = (delta) => setTicketPrice(p => clamp(p+delta, MIN_TICKET_PRICE, MAX_TICKET_PRICE));
     const setLevel = (key, delta) => setGmBudget(b => ({...b, [key]: clamp(budgetLevel(b,key)+delta, 1, 5)}));
@@ -49764,6 +50119,22 @@ const INFO_PAGES = {
 // ── CHANGELOG ── shown on the "What's New" page and announced once after an
 // update. To ship an update: bump APP_VERSION and add an entry at the top.
 const CHANGELOG = [
+  { version:'1.24', date:'November 2026', title:'Re-sign your players',
+    items:[
+      "Re-signing is front and center (GM mode). The Roster opens with a Re-sign your players list: each expiring player's asking price, his odds of staying if you do nothing, and a Re-sign button that goes straight to the negotiation. From the trade deadline on, the list also sits right under What's next on your dashboard.",
+      "After the Finals, What's next tells you how many contracts are up before you can start the new season, so no one walks without you noticing. Start Season anyway is still there if you're happy to let them go.",
+      "Fixed: re-signing a player in the last year of his deal now adds the new years after this season, so a 4-year deal really leaves 4 years.",
+    ] },
+  { version:'1.23', date:'November 2026', title:'Cash in trades',
+    items:[
+      "Cash in trades (GM mode): either side can now put cash in a deal, the way real teams do. Pay to move a contract you don't need, or sell a second-round pick for money. The real rule applies: each team can send up to 5.15% of the salary cap in cash per season ($8M today), and separately receive the same amount. Cash shows up in your season's finances.",
+      "Teams now count the cost of taking on a player they have no use for, or an overpaid contract: a roster spot, plus the salary he isn't worth. Add cash or a second-round pick to move one. Shop a package on the Trade Block can add cash too, and lists teams that would simply take the contract off your hands.",
+      "The best-return offers on the Trade Block no longer leave the other GM feeling fleeced and holding a grudge.",
+    ] },
+  { version:'1.22', date:'November 2026', title:'Shop your players',
+    items:[
+      "Shop a package (GM mode, Trade Block): choose any of your players or draft picks, or a mix, and tap Find offers. Every team that wants them answers with the best deal its GM would sign off on, best return first, and each one opens ready to propose. The offers follow the same rules as any trade: salaries match, rosters stay legal, and each GM's style and history with you count.",
+    ] },
   { version:'1.21', date:'November 2026', title:'Your league writes its own history',
     items:[
       'Rewards: spend your achievement points. Open Achievements and tap Rewards. In MyCareer, buy extra skill points, a team dinner with your teammates, a quick recovery from an injury, or +2 potential. In GM mode, buy extra scouting points, a medical team to bring an injured player back, a press tour for reputation, a dinner that clears an owner warning, or a development camp for a young player. Each reward can be used a set number of times per season.',
