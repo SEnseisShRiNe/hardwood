@@ -2641,6 +2641,36 @@ function genRealFreeAgents(era, count, currentRosterNames) {
   if (out.length < count) out.push(...realReserve(targetYear, taken, count - out.length, era));
   return out.sort((a,b) => b.overall - a.overall).slice(0, Math.max(count, 45));
 }
+// The real free agents of the summer before a season: players whose deal ran
+// out the season before (1 year left then) and who signed a new one, with
+// their old team or a new one. A new save opens with them on the market
+// instead of on their new rosters; their real team usually re-signs them
+// during free agency (cpuFreeAgencyDay), unless you sign them first.
+// Your own team keeps its players (re-signed as they really were).
+function realSummerFreeAgents(teams, era, myTeamId) {
+  const prev = ERA_ROSTERS[String(parseInt(era, 10) - 1)];
+  if (!prev) return { teams, freeAgents: [] };
+  const was = new Map();
+  for (const [tid, rows] of Object.entries(prev)) for (const r of rows) was.set(normName(r[0]), { tid, years: r[5] });
+  const out = [];
+  const next = teams.map(t => {
+    if (t.id === myTeamId) return t;
+    const keep = [];
+    for (const p of (t.roster || [])) {
+      const w = was.get(normName(p.name));
+      // (A star staying put almost always extended before reaching the market.)
+      const extended = w && w.tid === t.id && (p.overall || 0) >= 76;
+      if (w && w.years === 1 && !extended && ((p.contract?.years || 0) >= 2 || w.tid !== t.id)) {
+        out.push({ ...p, realTeam: t.id, lastTeam: w.tid, summerFA: true });
+      } else keep.push(p);
+    }
+    return keep.length === (t.roster || []).length ? t : { ...t, roster: keep };
+  });
+  return { teams: next, freeAgents: out };
+}
+// A new save's opening market: that season's real unsigned players, topped
+// up with real players who aren't on any roster, so it's a full summer market.
+const START_FA_COUNT = 120;
 
 // ---- Real reserve players ----
 // Real Players mode used to plug every roster gap with a generated player
@@ -2764,7 +2794,7 @@ function buildOffseasonFreeAgents(walked, leftover, era, rosterNames) {
     const sal = roundSalary(calcSalary(p.overall, era) * 0.8, era);
     out.push({ ...p, contract:{ salary:sal, years:ri(1,3) }, satisfaction: ri(55,80) });
   });
-  return out.sort((a,b) => b.overall - a.overall).slice(0, 60);
+  return out.sort((a,b) => b.overall - a.overall); // the whole market: everyone whose deal ran out
 }
 
 // OVR-targeted player generation — uses positional midpoint then shifts to target
@@ -4037,10 +4067,16 @@ function simulateCpuTrades(teams, myTeamId) {
   const needB = teamNeed(b); // what B is looking for
   const needA = teamNeed(a); // what A is looking for
   // A's best trade chip for B's need, and vice versa — expendable (not top-2 on their own team) but strong at the target need
-  const aSorted = [...a.roster].sort((x,y)=>y.overall-x.overall);
-  const bSorted = [...b.roster].sort((x,y)=>y.overall-x.overall);
-  const aPiece = aSorted.slice(2).sort((x,y)=>(y.attrs?.[needB]||0)-(x.attrs?.[needB]||0))[0];
-  const bPiece = bSorted.slice(2).sort((x,y)=>(y.attrs?.[needA]||0)-(x.attrs?.[needA]||0))[0];
+  // Untouchable: the two best players, plus any young player (24 or under)
+  // projected to become as good as the team's best — a rookie Yao Ming is the
+  // franchise even while he's still the third-best player on the roster.
+  const tradeable = (t) => {
+    const sorted = [...t.roster].sort((x,y)=>y.overall-x.overall);
+    const bar = (sorted[0]?.overall ?? 0) - 2;
+    return sorted.slice(2).filter(p => !((p.age ?? 30) <= 24 && (p.potential ?? p.overall) >= bar));
+  };
+  const aPiece = tradeable(a).sort((x,y)=>(y.attrs?.[needB]||0)-(x.attrs?.[needB]||0))[0];
+  const bPiece = tradeable(b).sort((x,y)=>(y.attrs?.[needA]||0)-(x.attrs?.[needA]||0))[0];
   if (!aPiece || !bPiece) return { teams, transactions: [] };
 
   const vA = tradeValue(aPiece), vB = tradeValue(bPiece);
@@ -4059,6 +4095,76 @@ function simulateCpuTrades(teams, myTeamId) {
     summary: `${a.city} ${a.name} trade ${aPiece.name} to ${b.city} ${b.name} for ${bPiece.name}.`,
   };
   return { teams: newTeams, transactions: [transaction] };
+}
+
+// ── Offseason free agency: FA_DAYS days, like Basketball GM's ──
+// Every expiring contract league-wide lands in one market. Each day CPU
+// teams with open roster spots sign someone: the best player they can afford
+// (with a nudge toward their weakest area). Early days are a frenzy, later
+// ones quiet; teams over the cap wait for prices to fall, then take a
+// minimum deal. Unsigned players lower their asks a little each day after
+// the first week.
+const FA_DAYS = 30;
+function cpuFreeAgencyDay(teams, freeAgents, myTeamId, era, day) {
+  let fas = [...(freeAgents || [])];
+  const tx = [];
+  const minSal = getMinSalary(era);
+  const cap = getSalaryCap(era);
+  const byId = new Map(teams.map(t => [t.id, t]));
+  // That summer's real deals: each team re-signs (or signs) its real free
+  // agents over the first couple of weeks, at their real contracts.
+  const pReal = Math.min(0.9, 0.16 + day * 0.03);
+  for (const p of [...fas].filter(x => x.realTeam && x.realTeam !== myTeamId).sort((a, b) => b.overall - a.overall)) {
+    const t = byId.get(p.realTeam);
+    if (!t || (t.roster || []).length >= MAX_ROSTER || Math.random() > pReal) continue;
+    const { realTeam, lastTeam, summerFA, ...signed } = p; // eslint-disable-line no-unused-vars
+    fas = fas.filter(x => x.id !== p.id);
+    byId.set(t.id, { ...t, roster: [...(t.roster || []), signed] });
+    const again = lastTeam === t.id;
+    tx.push({ id: Math.random().toString(36).slice(2), teamA: t.id, player: p.name, ovr: p.overall,
+      summary: `${t.city} ${t.name} ${again ? 're-sign' : 'sign free agent'} ${p.name} (OVR ${p.overall}): ${p.contract.years}yr / ${fmtMoney(p.contract.salary)}.` });
+  }
+  const pending = new Map();
+  fas.forEach(p => { if (p.realTeam && p.realTeam !== myTeamId) pending.set(p.realTeam, (pending.get(p.realTeam) || 0) + 1); });
+  const order = teams.filter(t => t.id !== myTeamId).map(t => t.id).sort(() => Math.random() - 0.5);
+  // A frenzy at the start (most teams sign someone on day 1), quiet later.
+  const pDay = Math.max(0.15, 0.75 - day * 0.03);
+  const mle = cap * 0.09; // over the cap, a team can still pay one player up to the mid-level
+  for (const id of order) {
+    const t = byId.get(id);
+    const n = (t.roster || []).length + (pending.get(id) || 0); // (spots held for its real free agents)
+    if (n >= MAX_ROSTER || !fas.length) continue;
+    const short = n < 13;
+    if (!short && Math.random() > 0.06) continue; // a full team rarely adds a 14th or 15th man
+    if (Math.random() > (short && day >= 20 ? 0.6 : pDay)) continue; // (short-handed teams hurry in the last ten days)
+    const payroll = (t.roster || []).reduce((sum, p) => sum + (p.contract?.salary || 0), 0);
+    const space = cap - payroll;
+    const room = Math.max(space, t._faMle === era ? minSal + 0.01 : mle);
+    const nd = teamNeed(t);
+    const score = p => p.overall + (p.attrs?.[nd] || 0) * 0.12;
+    let signee = fas.filter(p => (p.contract?.salary || minSal) <= room).sort((a, b) => score(b) - score(a))[0];
+    let usedMle = !!signee && space < (signee.contract?.salary || 0);
+    if (!signee) {
+      if (!short || day < 8) continue; // waits for prices to fall
+      // A minimum deal: the best of the players who'd take one (cheap asks).
+      // (Late in the summer more players will settle for one.)
+      const willing = day < 15 ? minSal * 1.8 : day < 22 ? minSal * 3 : Infinity;
+      const cheap = fas.filter(p => (p.contract?.salary || minSal) <= willing).sort((a, b) => score(b) - score(a))[0];
+      if (!cheap) continue;
+      signee = { ...cheap, contract: { salary: minSal, years: 1 } };
+      usedMle = false;
+    }
+    fas = fas.filter(p => p.id !== signee.id);
+    if (signee.realTeam) { const { realTeam, lastTeam, summerFA, ...plain } = signee; signee = plain; } // eslint-disable-line no-unused-vars
+    byId.set(id, { ...t, roster: [...(t.roster || []), signee], ...(usedMle ? { _faMle: era } : {}) });
+    tx.push({ id: Math.random().toString(36).slice(2), teamA: t.id, player: signee.name, ovr: signee.overall,
+      summary: `${t.city} ${t.name} sign free agent ${signee.name} (OVR ${signee.overall}): ${signee.contract.years}yr / ${fmtMoney(signee.contract.salary)}.` });
+  }
+  if (day >= 7) fas = fas.map(p => {
+    const sal = p.contract?.salary || minSal;
+    return sal > minSal ? { ...p, contract: { ...p.contract, salary: Math.max(minSal, roundSalary(sal * 0.985, era)) } } : p;
+  });
+  return { teams: teams.map(t => byId.get(t.id) || t), freeAgents: fas, transactions: tx };
 }
 
 // AI teams periodically sign free agents too - without this, the pool only
@@ -30094,7 +30200,7 @@ const TRADE_GRADES = [[10, 'Heist'], [3, 'Win'], [-3, 'Fair'], [-10, 'Loss'], [-
 const tradeNet = (tr) => Math.round(((tr.got || []).reduce((s, a) => s + (a.ws || 0), 0) - (tr.gave || []).reduce((s, a) => s + (a.ws || 0), 0)) * 10) / 10;
 const tradeGrade = (tr) => !tr.seasons ? 'Too early' : (TRADE_GRADES.find(([min]) => tradeNet(tr) >= min) || TRADE_GRADES[TRADE_GRADES.length - 1])[1];
 const fmtWins = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`;
-const Container = ({children}) => <div style={{maxWidth:'680px',margin:'0 auto',padding:'0 16px 90px'}}>{children}</div>;
+const Container = ({children, wide}) => <div style={{maxWidth:wide?'1180px':'680px',margin:'0 auto',padding:'0 16px 90px'}}>{children}</div>;
 
 // The screen being drawn (set as the app renders), so each screen's page
 // mounts fresh and plays its entrance when you move between screens.
@@ -31608,7 +31714,8 @@ const RS_CACHE = new Map();
 // Where the data files sit on the server. /real/ is the right place; the other
 // two catch the usual upload slips (the folder nested inside itself, or the
 // files dropped straight into public/). Whichever answers first is remembered.
-const RS_BASES = ['/real/', '/real/real/', '/'];
+// A build made with a relative base (the preview copy) looks next to the page first.
+const RS_BASES = [...new Set([(import.meta.env?.BASE_URL || '/') + 'real/', '/real/', '/real/real/', '/'])];
 let RS_BASE = null;
 const RS_TRIED = [];
 // A missing file comes back as a 404, or as the site's own HTML page when the
@@ -32645,6 +32752,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   const myBoxRec = (gameNum) => gameNum && gmBoxes.y === curSeasonYear ? (gmBoxes.games || []).find(r => r.mine && r.n === gameNum) || null : null;
   const [leagueNews, setLeagueNews]       = useState([]);
   const [leagueTransactions, setLeagueTransactions] = useState([]); // CPU-to-CPU trades feed
+  const [gmSimStop, setGmSimStop] = useState(null); // {game, wins, losses, why}: where a multi-game sim paused, and why
   const [leagueName, setLeagueName]       = useState('Hardwood League');
   const [difficulty, setDifficulty]       = useState('normal');
   const [randomMode, setRandomMode]       = useState(false);
@@ -33083,6 +33191,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   const [gmDifficulty, setGmDifficulty]   = useState('pro');   // 'rookie'|'pro'|'legend'
   const [gmPlayerInjuries, setGmPlayerInjuries] = useState({}); // {playerId: gamesLeft}
   const [tradeLocked, setTradeLocked]   = useState(false);
+  const [gmFaDay, setGmFaDay]           = useState(null);  // offseason free agency: day 0..FA_DAYS (null = no FA period this season)
   const [extDeadlinePassed, setExtDeadlinePassed] = useState(false);
   // Trades reopen once the Finals are over (the deadline only freezes them
   // for the rest of the season and the playoffs). Also repairs saves that
@@ -33137,7 +33246,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     if (mode !== 'gm' || !draftPool?.length || !draftOrder?.length) return;
     if (draftCurrent < Math.min(60, draftOrder.length)) return;
     const val = p => (p.potential ?? p.overall) + p.overall;
-    const left = [...draftPool].sort((a,b) => val(b) - val(a)).slice(0, 25).map(p => {
+    // (Real Players mode: only real prospects reach the market. The invented
+    // ones that pad a real class to 60 just go home.)
+    const left = [...draftPool].filter(p => randomMode || isRealPlayerName(p.name)).sort((a,b) => val(b) - val(a)).slice(0, 25).map(p => {
       const { mockSlot, scoutGrade, scoutAccuracy, scouted, physTier, ...rest } = p; // eslint-disable-line no-unused-vars
       return { ...rest, undrafted: true, contract: { salary: getMinSalary(moneyEra), years: 2 }, satisfaction: ri(60, 85) };
     });
@@ -33553,7 +33664,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       ['myPickNum', myPickNum, setMyPickNum], ['rookieYears', rookieYears, setRookieYears], ['onRookieDeal', onRookieDeal, setOnRookieDeal],
       ['coachGoal', coachGoal, setCoachGoal], ['lastWorkout', lastWorkout, setLastWorkout], ['arcComplete', arcComplete, setArcComplete],
       ['coaches', coaches, setCoaches], ['gms', gms, setGms],
-      ['tradeLocked', tradeLocked, setTradeLocked], ['extDeadlinePassed', extDeadlinePassed, setExtDeadlinePassed],
+      ['tradeLocked', tradeLocked, setTradeLocked], ['gmFaDay', gmFaDay, setGmFaDay], ['extDeadlinePassed', extDeadlinePassed, setExtDeadlinePassed],
       ['gmMidSeasonFired', gmMidSeasonFired, setGmMidSeasonFired], ['gmFeaturedPlayerId', gmFeaturedPlayerId, setGmFeaturedPlayerId],
       ['gmChampionships', gmChampionships, setGmChampionships], ['gmChecklist', gmChecklist, setGmChecklist],
       ['gmFinancials', gmFinancials, setGmFinancials], ['pickOwners', pickOwners, setPickOwners], ['gmMleUsed', gmMleUsed, setGmMleUsed],
@@ -33569,6 +33680,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   }
   function restoreExtraState(d) {
     extraSaveFields().forEach(([k,,set]) => { if (d[k] !== undefined) set(k === 'playoffs' ? rehydrateTeamRefs(d[k], d.teams) : d[k]); });
+    if (d.gmFaDay === undefined) setGmFaDay(null); // saves from before summer free agency
     if (d.seasonArcId !== undefined) setSeasonArc(SEASON_ARCS.find(a => a.id === d.seasonArcId) || null);
   }
 
@@ -34502,12 +34614,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setSSt(nSt);
     setGameGrades(prev => [...prev, gr.g].slice(-6));
     setNewsItems(makeNews(won, finalPStats, nSt, myPlayer, myTeam||teams.find(t=>t.id===myTeamId)));
-    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>setLeagueTransactions(prev=>[...txs, ...prev].slice(0,30)), {oppId, won, myScore:finalMyScore, oppScore:finalOppScore, lines: simcast.finalLines, myFixed: ssFromCareerLine(finalPStats, finalMyScore-finalOppScore)});
+    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>logTx(txs), {oppId, won, myScore:finalMyScore, oppScore:finalOppScore, lines: simcast.finalLines, myFixed: ssFromCareerLine(finalPStats, finalMyScore-finalOppScore)});
     const faSign = simulateCpuFASignings(ut, freeAgents, myTeamId, moneyEra);
     ut = faSign.teams;
     ut = driftLeagueRosters(ut, 1);
     if (faSign.freeAgents.length !== freeAgents.length) setFreeAgents(faSign.freeAgents);
-    if (faSign.transactions.length) setLeagueTransactions(prev=>[...faSign.transactions, ...prev].slice(0,30));
+    logTx(faSign.transactions);
     const mi = ut.findIndex(t=>t.id===myTeamId);
     if(mi>=0) ut[mi]={...ut[mi],wins:ut[mi].wins+(won?1:0),losses:ut[mi].losses+(won?0:1)};
     setTeams(ut);
@@ -35005,12 +35117,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const nSt = { pts:st.pts+pStats.pts, reb:st.reb+pStats.reb, ast:st.ast+pStats.ast, stl:st.stl+pStats.stl, blk:st.blk+pStats.blk, min:(st.min||0)+(pStats.min||0), games:st.games+1, wins:st.wins+(won?1:0), losses:st.losses+(won?0:1), fgm:(st.fgm||0)+(pStats.fgm||0), fga:(st.fga||0)+(pStats.fga||0), tpm:(st.tpm||0)+(pStats.tpm||0), tpa:(st.tpa||0)+(pStats.tpa||0), ftm:(st.ftm||0)+(pStats.ftm||0), fta:(st.fta||0)+(pStats.fta||0) };
     setSSt(nSt);
     setNewsItems(makeNews(won, pStats, nSt, myPlayer, myTeam||teams.find(t=>t.id===myTeamId)));
-    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>setLeagueTransactions(prev=>[...txs, ...prev].slice(0,30)), {oppId:g.oppId, won, myScore, oppScore, home:g.home, myFixed: ssFromCareerLine(pStats, myScore-oppScore)});
+    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>logTx(txs), {oppId:g.oppId, won, myScore, oppScore, home:g.home, myFixed: ssFromCareerLine(pStats, myScore-oppScore)});
     const faSign = simulateCpuFASignings(ut, freeAgents, myTeamId, moneyEra);
     ut = faSign.teams;
     ut = driftLeagueRosters(ut, 1);
     if (faSign.freeAgents.length !== freeAgents.length) setFreeAgents(faSign.freeAgents);
-    if (faSign.transactions.length) setLeagueTransactions(prev=>[...faSign.transactions, ...prev].slice(0,30));
+    logTx(faSign.transactions);
     const mi = ut.findIndex(t => t.id === myTeamId);
     if (mi>=0) ut[mi] = {...ut[mi], wins:ut[mi].wins+(won?1:0), losses:ut[mi].losses+(won?0:1)};
     setTeams(ut);
@@ -35103,12 +35215,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       setMyInjury(left > 0 ? {...myInjury, gamesLeft:left} : null);
     }
     // Update record + teams
-    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>setLeagueTransactions(prev=>[...txs, ...prev].slice(0,30)), {oppId:g.oppId, won, myScore:ms, oppScore:os, home:g.home});
+    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>logTx(txs), {oppId:g.oppId, won, myScore:ms, oppScore:os, home:g.home});
     const faSign = simulateCpuFASignings(ut, freeAgents, myTeamId, moneyEra);
     ut = faSign.teams;
     ut = driftLeagueRosters(ut, 1);
     if (faSign.freeAgents.length !== freeAgents.length) setFreeAgents(faSign.freeAgents);
-    if (faSign.transactions.length) setLeagueTransactions(prev=>[...faSign.transactions, ...prev].slice(0,30));
+    logTx(faSign.transactions);
     const mi = ut.findIndex(t=>t.id===myTeamId);
     if (mi>=0) ut[mi] = {...ut[mi], wins:ut[mi].wins+(won?1:0), losses:ut[mi].losses+(won?0:1)};
     setTeams(ut);
@@ -35311,12 +35423,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       setSchedule(ns);
     }
     setSSt(nSt);
-    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>setLeagueTransactions(prev=>[...txs, ...prev].slice(0,30)), {oppId:g.oppId, won, myScore, oppScore, home:g.home, myFixed: ssFromCareerLine(pStats, myScore-oppScore)});
+    let ut = advanceOtherTeams(teams, myTeamId, curSeasonYear, (txs)=>logTx(txs), {oppId:g.oppId, won, myScore, oppScore, home:g.home, myFixed: ssFromCareerLine(pStats, myScore-oppScore)});
     const faSign = simulateCpuFASignings(ut, freeAgents, myTeamId, moneyEra);
     ut = faSign.teams;
     ut = driftLeagueRosters(ut, 1);
     if (faSign.freeAgents.length !== freeAgents.length) setFreeAgents(faSign.freeAgents);
-    if (faSign.transactions.length) setLeagueTransactions(prev=>[...faSign.transactions, ...prev].slice(0,30));
+    logTx(faSign.transactions);
     const mi = ut.findIndex(t => t.id===myTeamId);
     if (mi>=0) ut[mi] = {...ut[mi], wins:ut[mi].wins+(won?1:0), losses:ut[mi].losses+(won?0:1)};
     setTeams(ut);
@@ -35651,7 +35763,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       }
     });
     setTeams(ut);
-    if (overflow.length) setFreeAgents(prev => [...overflow, ...prev]);
+    if (overflow.length) setFreeAgents(prev => [...overflow.filter(p => randomMode || isRealPlayerName(p.name)), ...prev]);
     setDraftPool(remaining); // the undrafted move on to free agency (see the effect above)
     setDraftCurrent(order.length);
     return ut;
@@ -35665,7 +35777,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // (A season that hasn't been played has no real postseason to start in.)
     if (phase === 'playoffs' && seasonUnplayed(selectedEra)) phase = 'preseason';
     let lg = teams;
-    if (!randomMode && !['afterDraft','playoffs'].includes(phase)) {
+    if (!randomMode && !['afterDraft','afterFA','playoffs'].includes(phase)) {
       const yr = parseInt(selectedEra, 10);
       const cls = new Set((REAL_DRAFTS[selectedEra] || []).map(r => normName(r[0])));
       const rookie = (p) => cls.has(normName(p.name)) && (REAL_DEBUT[normName(p.name)] ?? yr) >= yr && (p.age ?? 99) <= 24;
@@ -35676,7 +35788,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     }
     startGMWith(id, phase, lg);
   }
-  function startGMWith(id, phase, teams) {
+  function startGMWith(id, phase, teams0) {
+    // Real Players mode: that summer's real free agents start on the market.
+    // (Starting after free agency keeps the real opening-night rosters.)
+    const summer = (!randomMode && !['playoffs','afterFA'].includes(phase)) ? realSummerFreeAgents(teams0, selectedEra, id) : { teams: teams0, freeAgents: [] };
+    const teams = summer.teams;
+    if (summer.freeAgents.length) setTeams(teams);
     // The starting season's real draft class is mostly already on NBA rosters
     // (they were drafted the June before) — drafting them again duplicated
     // players (two Alex Sarrs). Keep only prospects not already in the league
@@ -35695,11 +35812,15 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setGmGameLog([]);
     setGmMidSeasonFired(false);
     setTradeLocked(false); setExtDeadlinePassed(false); // a new season: the deadlines are ahead again
+    setGmFaDay(['playoffs','afterFA'].includes(phase) ? null : 0); // a new save opens with summer free agency (not when starting after it, or at the playoffs)
     setGmJobEvent(null);
     setGmCareerEvents([]);
     setGmFiredFinal(false);
     const rosterNames = teams.flatMap(t => (t.roster||[]).map(p=>p.name));
-    setFreeAgents(randomMode ? genRandomFreeAgents(selectedEra, 30) : genRealFreeAgents(selectedEra, 30, rosterNames));
+    {
+      const rest = randomMode ? genRandomFreeAgents(selectedEra, START_FA_COUNT) : genRealFreeAgents(selectedEra, START_FA_COUNT, [...rosterNames, ...summer.freeAgents.map(p => p.name)]);
+      setFreeAgents([...summer.freeAgents, ...rest].sort((a,b) => b.overall - a.overall));
+    }
     setDraftOrder(order);
     setDraftResults([]);
     setDraftCurrent(0);
@@ -35726,11 +35847,13 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const ruleNews = RULE_CHANGES[selectedEra];
     if (ruleNews) setLeagueNews(prev => [ruleNews, ...prev].slice(0, 12));
 
-    if (phase === 'afterDraft') {
+    if (phase === 'afterDraft' || phase === 'afterFA') {
       // Resolve the whole draft immediately using best-player-available,
       // land straight on the GM dashboard with a full, drafted roster.
+      // (After Draft then opens free agency; After Free Agency is preseason:
+      // opening-night rosters, straight into the season.)
       autoSimDraft(dc, order, teams);
-      setGmChecklist({roster:false, fa:false, draft:true});
+      setGmChecklist({roster:false, fa: phase === 'afterFA', draft:true});
       setScreen('gmDashboard');
     } else if (phase === 'playoffs') {
       // Resolve the draft, then apply what ACTUALLY happened during that real
@@ -36003,9 +36126,38 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   // Opening night (GM): close out any draft picks still unmade and make sure
   // every CPU roster has at least 13 players. Returns the updated teams (and
   // queues the matching state), so the caller can simulate with them now.
+  // When a league move happened: the game it came after, or the offseason
+  // phase. Every transaction carries this so the feed reads in season order.
+  function txWhenNow() {
+    if (mode === 'gm') {
+      const gs = gmSeason || {};
+      const played = (gs.wins || 0) + (gs.losses || 0);
+      if (gmPlayoffData) return gmPlayoffData.champion ? 'Offseason' : 'Playoffs';
+      if (played === 0) return gmFaDay != null && gmFaDay < FA_DAYS ? `Free agency · Day ${gmFaDay + 1}` : 'Preseason';
+      return `Game ${played}`;
+    }
+    if (inPlayoffSeries) return 'Playoffs';
+    return `Game ${(schedule || []).filter(g => g.played).length + 1}`;
+  }
+  function logTx(txs, when) {
+    if (!txs?.length) return;
+    const w = when || txWhenNow();
+    setLeagueTransactions(prev => [...txs.map(t => ({ ...t, when: t.when || w })), ...prev].slice(0, 30));
+  }
+
   function seasonOpenUpkeep() {
     const pending = draftPool?.length && draftCurrent < 60 && draftOrder?.length;
-    const r = leagueRosterUpkeep(teams, myTeamId, freeAgents, moneyEra, {
+    // Free agency runs its remaining days first.
+    let T = teams, F = freeAgents;
+    const faTx = [];
+    if (gmFaDay != null && gmFaDay < FA_DAYS) {
+      for (let d = gmFaDay; d < FA_DAYS; d++) {
+        const day = cpuFreeAgencyDay(T, F, myTeamId, moneyEra, d);
+        T = day.teams; F = day.freeAgents; faTx.push(...day.transactions.map(x => ({ ...x, when: `Free agency · Day ${d + 1}` })));
+      }
+      setGmFaDay(FA_DAYS);
+    }
+    const r = leagueRosterUpkeep(T, myTeamId, F, moneyEra, {
       draft: pending ? { pool: draftPool, order: draftOrder, current: draftCurrent } : null,
       minRoster: 13, fictional: randomMode, year: (ERAS.find(e=>e.id===selectedEra)?.baseYear ?? parseInt(selectedEra,10)) + season - 1,
     });
@@ -36016,9 +36168,30 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       if (r.myPicks.length) notify(`📝 Draft closed on opening night — your scouts picked ${r.myPicks.map(p=>p.name).join(', ')}.`);
     }
     setFreeAgents(r.freeAgents);
-    if (r.transactions.length) setLeagueTransactions(prev => [...r.transactions.slice(0, 12), ...prev].slice(0, 30));
+    const allTx = [...r.transactions, ...faTx.sort((a,b) => (b.ovr||0) - (a.ovr||0))];
+    logTx(allTx.slice(0, 12), 'Preseason');
     setTeams(r.teams);
     return r.teams;
+  }
+
+  // Free agency: move the market on by n days (CPU teams sign, prices fall).
+  function advanceFreeAgency(n) {
+    if (gmFaDay == null || gmFaDay >= FA_DAYS) return;
+    let T = teams, F = freeAgents;
+    const tx = [];
+    const end = Math.min(FA_DAYS, gmFaDay + n);
+    for (let d = gmFaDay; d < end; d++) {
+      const day = cpuFreeAgencyDay(T, F, myTeamId, moneyEra, d);
+      T = day.teams; F = day.freeAgents; tx.push(...day.transactions.map(x => ({ ...x, when: `Free agency · Day ${d + 1}`, _d: d })));
+    }
+    setTeams(T); setFreeAgents(F); setGmFaDay(end);
+    // Newest day first, the biggest names first within a day.
+    const top = [...tx].sort((a,b) => (b._d - a._d) || ((b.ovr||0) - (a.ovr||0)));
+    logTx(top.slice(0, 12));
+    const head = top[0] ? ` Biggest: ${top[0].player} (OVR ${top[0].ovr}).` : '';
+    notify(end >= FA_DAYS
+      ? `Free agency is over: ${tx.length} signing${tx.length===1?'':'s'} in the last ${end - gmFaDay} day${end-gmFaDay===1?'':'s'}. Anyone still unsigned can be signed during the season, for less.`
+      : `Free agency · Day ${end} of ${FA_DAYS}: ${tx.length} signing${tx.length===1?'':'s'}.${head}`);
   }
 
   // Featured player for a GM broadcast. With a custom rotation it's someone
@@ -36416,6 +36589,11 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     let   ut      = gs.gamesLeft >= SEASON_G ? seasonOpenUpkeep() : [...teams];
     let   injuries = {...gmPlayerInjuries};
     const boxRecsThisRun = [];
+    // A multi-game sim pauses after the game where something happens that
+    // you'd want to act on before playing on: a rival calls with a trade, or
+    // one of your top eight players gets hurt for a while.
+    let stop = null, call = null;
+    const rotationIds = new Set([...(myT.roster || [])].sort((a,b) => b.overall - a.overall).slice(0, 8).map(p => p.id));
 
     for (let i = 0; i < toSim; i++) {
       const gameNum   = SEASON_G - gamesLeft;
@@ -36447,16 +36625,35 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       try { ut = simOthers(ut, myTeamId, 1, curSeasonYear, {oppId:oppTeam.id, won, myScore, oppScore, home, ...gmBoxOpts(myT, injuries)}, injuries); }
       finally { BOXLOG.sink = null; }
       sink.forEach(r => { r.n = gameNum + 1; boxRecsThisRun.push(r); });
+      const before = injuries;
       const step = stepLeagueInjuries(ut, injuries, myTeamId, { health: healthMult(gmBudget), myDnp: myDnpIds(myT, injuries) });
       ut = step.teams; injuries = step.injuries;
       if (step.myNote) newLog[0].injuryNote = step.myNote;
+      const hurt = [...rotationIds].find(id => (injuries[id] || 0) >= 5 && !((before[id] || 0) > 0));
+      if (hurt && !stop) {
+        const p = (myT.roster || []).find(x => x.id === hurt);
+        stop = { why: `${p?.name || 'A starter'} is hurt: out about ${injuries[hurt]} games. You may want to adjust your rotation or sign someone.` };
+      }
       ut = driftLeagueRosters(ut, 1);
       const myIdx = ut.findIndex(t=>t.id===myTeamId);
       if (myIdx>=0) ut[myIdx] = {...ut[myIdx], wins, losses};
 
-      // Generate league news
+      // Generate league news (stamped with the game it came after)
       const newsItem = genLeagueNews(ut, myTeamId);
-      if (newsItem) newLog[0].leagueNews = newsItem;
+      if (newsItem) newLog[0].leagueNews = `Game ${SEASON_G - gamesLeft} · ${newsItem}`;
+
+      // Now and then a rival phones with an offer (about once every 12 games).
+      // (Only before the trade deadline: it can pass in the middle of a run.)
+      if (!call && !rivalCall && !tradeLocked && SEASON_G - gamesLeft < DEADLINE_TRADE && gamesLeft > 0 && Math.random() < 1 / 12) {
+        call = makeRivalCall(ut);
+        if (call) {
+          const t = ut.find(x => x.id === call.teamId);
+          call = { ...call, atGame: SEASON_G - gamesLeft, atRecord: `${wins}–${losses}` };
+          if (!stop) stop = { why: `The ${t ? `${t.city} ${t.name}` : 'phone'} ${t ? 'are calling' : 'rang'} about a trade.` };
+        }
+      }
+      if (stop && i < toSim - 1) { stop = { ...stop, game: SEASON_G - gamesLeft, wins, losses, left: toSim - 1 - i }; break; }
+      if (stop && i === toSim - 1) stop = null; // the run ended on this game anyway: nothing was skipped
     }
 
     setGmPlayerInjuries(injuries);
@@ -36474,11 +36671,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     setGmSeason({wins, losses, gamesLeft});
     addGmBoxes(boxRecsThisRun);
     setGmGameLog(prev => [...newLog, ...prev].slice(0, 15));
-    // Now and then a rival phones with an offer (about once every 12 games).
-    if (!tradeLocked && gamesLeft > 0 && Math.random() < 1 - Math.pow(1 - 1 / 12, toSim)) {
-      const call = makeRivalCall(ut);
-      if (call) setRivalCall(call);
-    }
+    if (call) setRivalCall(call);
+    setGmSimStop(stop);
+    if (stop) notify(`⏸ Sim paused after Game ${stop.game} (${stop.wins}–${stop.losses}). ${stop.why}`);
     // Collect league news items
     const freshNews = newLog.filter(g=>g.leagueNews).map(g=>g.leagueNews);
     if (freshNews.length) setLeagueNews(prev => [...freshNews, ...prev].slice(0, 12));
@@ -36686,17 +36881,30 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // 4. Offseason free agency for CPU teams: replace who walked from the
     // pool (up to 12; the rest of the market stays open for the user until
     // the season starts, when everyone is filled to 13 and the draft closes).
+    // (CPU teams now sign over the FA_DAYS of free agency instead of all at
+    // once. The fill below is only a yardstick: league strength and team
+    // ratings are normalized as if rosters were full, then the players that
+    // fill "signed" go back into the market.)
     const offFill0 = leagueRosterUpkeep(rt, myId, expG.freeAgents, nextYrM, { minRoster: 12, fictional: randomMode, year: nextYr });
     // Strength drift is measured on the clubs that carried over (a new
     // expansion side is meant to be weak and mustn't lift everyone else).
     const keptNorm = normalizeLeagueStrength(teams.filter(t => !addedIds.has(t.id) && rt.some(r => r.id === t.id)), offFill0.teams.filter(t => !addedIds.has(t.id)));
-    const offFill = {...offFill0, teams: [...keptNorm, ...offFill0.teams.filter(t => addedIds.has(t.id))]};
+    const kept = new Map(rt.map(t => [t.id, new Set((t.roster||[]).map(p => p.id))]));
+    const filledTeams = [...keptNorm, ...offFill0.teams.filter(t => addedIds.has(t.id))];
+    const backToMarket = new Set(filledTeams.flatMap(t => (t.roster||[]).filter(p => !kept.get(t.id)?.has(p.id)).map(p => p.id)));
+    const offFill = {
+      teams: filledTeams.map(t => ({...t, roster: (t.roster||[]).filter(p => kept.get(t.id)?.has(p.id))})),
+      freeAgents: [...offFill0.freeAgents, ...(expG.freeAgents||[]).filter(p => backToMarket.has(p.id))].sort((a,b) => b.overall - a.overall),
+      transactions: [],
+    };
+    setGmFaDay(0);
+    setGmSimStop(null);
     const changeNotesG = seasonChangeNotes(nextYr, expG, { fictional: randomMode, prevYear: nextYr - 1, myFolded: expG.myFolded, myNewTeam: offFill.teams.find(t=>t.id===myId), mode: 'gm' });
     if (changeNotesG.length) {
-      setLeagueTransactions(prev => [...changeNotesG.filter(n=>n.news).map(n => ({ id:Math.random().toString(36).slice(2), teamA:'', player:'', summary:n.news })), ...prev].slice(0, 30));
+      setLeagueTransactions(prev => [...changeNotesG.filter(n=>n.news).map(n => ({ id:Math.random().toString(36).slice(2), teamA:'', player:'', summary:n.news, when:'Offseason' })), ...prev].slice(0, 30));
       setSeasonChanges({ year: nextYr, items: changeNotesG });
     }
-    if (offFill.transactions.length) setLeagueTransactions(prev => [...offFill.transactions.slice(0, 12), ...prev].slice(0, 30));
+    logTx(offFill.transactions.slice(0, 12), 'Offseason');
     // 5. Set everything
     setTeams(offFill.teams);
     setSeason(prev=>prev+1);
@@ -36837,6 +37045,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
   function faMarketCool() {
     const gs = gmSeason || {};
     const played = (gs.wins || 0) + (gs.losses || 0), total = played + (gs.gamesLeft || 0);
+    // (Summer free agency lowers asks itself, day by day: cpuFreeAgencyDay.)
     return total > 0 ? clamp(played / (total * 0.5), 0, 1) : 0;
   }
   function faAsk(p) {
@@ -36854,7 +37063,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     if (ask <= min * 1.05) return true;
     const pr = getPriorities(p);
     const pricey = ask > min * 4; // a real rotation player needs a stronger reason
-    if (p.age >= 30 && myTeamQuality() >= 0.55 && pr.winning >= pr.money && (!pricey || p.age >= 33)) return 'ring';
+    // (A ring-chaser is a fading veteran, not a star still worth a big deal.)
+    const stillAStar = p.overall >= 72 || ask > min * 10;
+    if (p.age >= 30 && !stillAStar && myTeamQuality() >= 0.55 && pr.winning >= pr.money && (!pricey || p.age >= 33)) return 'ring';
     if (p.age >= 34 && !pricey) return 'vet';
     const u = (hashStr(`min|${p.id}|${p.name}`) % 1000) / 1000;
     return !pricey && u < 0.12 + 0.45 * faMarketCool() + (ask <= min * 2 ? 0.2 : 0);
@@ -37210,7 +37421,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     // Early in the season show the three best; from the deadline on, everyone.
     const rows = urgent || resignAll ? all : all.slice(0, 3);
     return (
-      <div style={{...card({padding:'14px'}), borderLeft:`3px solid ${WIN}`, marginBottom:'12px'}}>
+      <div style={{...card({padding:'14px'}), borderLeft:`3px solid ${WIN}`, paddingLeft:'14px', paddingRight:'4px', marginBottom:'12px'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:'8px',marginBottom:'4px'}}>
           <span style={{fontSize:'15px',fontWeight:800,color:TXT}}>{noEmoji(`Re-sign your players · ${all.length}`)}</span>
           {offseason && <span style={{fontSize:'11.5px',fontWeight:800,color:LOSS,whiteSpace:'nowrap'}}>Last chance</span>}
@@ -37297,6 +37508,17 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       const giveV = rivalValue(R.style, theirPlayers, theirPicks, { own: true, ownTop: ownTopOf(theirT), pv: pickValue });
       return giveV > 0 ? getV / giveV >= barOf(R) : getV > 0;
     };
+  }
+
+  // Roster shortcut: shop these players straight away and land on the
+  // Trade Block with the offers already listed (more can be added there).
+  function shopPlayersNow(ids) {
+    const sel = { players: ids, picks: [], cash: 0 };
+    setShopSel(sel);
+    setShopOffers({ at: teams, list: findPackageOffers(sel) });
+    setRosterOpen(null);
+    go('tradeBlock');
+    if (typeof window !== 'undefined') window.scrollTo(0, 0);
   }
 
   function findPackageOffers(sel) {
@@ -38056,7 +38278,22 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     const nOpp = nextG && teams.find(t=>t.id===nextG.oppId);
     let title, sub = '', primary, extras = [];
     const rN = (teams.find(t=>t.id===myTeamId)?.roster||[]).length;
-    if (gs.gamesLeft > 0 && !gmDraftOpen && rN < MIN_ROSTER) {
+    if (gs.gamesLeft > 0 && !gmDraftOpen && played === 0 && gmFaDay != null && gmFaDay < FA_DAYS) {
+      const nFA = (freeAgents||[]).length;
+      title = `Free agency · Day ${gmFaDay + 1} of ${FA_DAYS}`;
+      sub = `${nFA} free agents on the market. Teams sign players every day, and asking prices drop after the first week. ${rN < MIN_ROSTER ? `You need at least ${MIN_ROSTER} players by opening night (you have ${rN}).` : 'The season starts when free agency ends.'}`;
+      primary = { label: '📋 Free agents →', short: '📋 Free agency', on: ()=>go('freeAgency') };
+      extras = [
+        { label: '⏩ Next day', on: ()=>advanceFreeAgency(1) },
+        { label: '+7 days', on: ()=>advanceFreeAgency(7), hide: FA_DAYS - gmFaDay <= 1 },
+        { label: `⏭ End free agency (${FA_DAYS - gmFaDay} days left)`, on: ()=>advanceFreeAgency(FA_DAYS) },
+      ].filter(x => !x.hide);
+    } else if (gs.gamesLeft > 0 && !gmDraftOpen && rN > MAX_ROSTER) {
+      title = `Too many players: ${rN} on your roster`;
+      sub = `The limit is ${MAX_ROSTER}. Release ${rN - MAX_ROSTER} (open a player's row on the Roster and hold Release), or trade ${rN - MAX_ROSTER > 1 ? 'some' : 'one'} away, before the next game.`;
+      primary = { label: '📋 Go to the Roster →', short: '📋 Trim roster', on: ()=>go('roster') };
+      extras = [{ label: '🔄 Trades', on: ()=>go('gmTradePick') }];
+    } else if (gs.gamesLeft > 0 && !gmDraftOpen && rN < MIN_ROSTER) {
       title = `Your roster is short: ${rN} players`;
       sub = `You need at least ${MIN_ROSTER} to play. Expiring contracts you didn't re-sign have left — sign free agents to fill the gaps.`;
       primary = { label: '📋 Sign free agents →', short: '📋 Sign players', on: ()=>go('freeAgency') };
@@ -38809,10 +39046,9 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               <div style={labelStyle}>Start at</div>
               <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
                 {[
-                  ['preseason','Preseason','Full onboarding — review your roster, hit free agency, then draft.'],
-                  ['draftLottery','Draft Lottery','Watch the lottery reveal, then move straight to the draft.'],
-                  ['draft','Draft Day','Skip straight to the draft board and make your picks.'],
-                  ['afterDraft','After Draft','Draft resolves automatically — jump right into managing your season.'],
+                  ['preseason','Offseason','The whole summer: the draft lottery, your own draft, then 30 days of free agency. (You can skip ahead to the draft from the lottery.)'],
+                  ['afterDraft','Free Agency','The draft is done. Start on Day 1 of free agency: 30 days to sign players before the season.'],
+                  ['afterFA','Preseason','Free agency is over: rosters as they were on opening night. Jump straight into the season.'],
                   ['playoffs','Playoffs', randomMode ? 'The regular season is simulated, then you jump straight to the postseason if your team made it.' : 'See the real regular season standings from that year, then jump straight to the postseason if your team made it.'],
                 ].filter(([v]) => !(v === 'playoffs' && seasonUnplayed(selectedEra))).map(([v,label,desc])=>{
                   const sel = gmStartPhase===v;
@@ -38864,6 +39100,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               </div>
               {/* Toggle switch */}
               <button onClick={()=>{ if (!randomMode) setRandomSeed((Date.now() ^ Math.floor(Math.random()*1e9)) & 0x7fffffff); setRandomMode(v=>!v); }}
+                role="switch" aria-checked={randomMode} aria-label="Random Mode"
                 style={{width:'48px',height:'28px',borderRadius:'8px',background:randomMode?ACC:'rgba(255,255,255,0.12)',border:'none',cursor:'pointer',position:'relative',transition:'background 0.2s',flexShrink:0}}>
                 <div style={{position:'absolute',top:'3px',left:randomMode?'22px':'3px',width:'22px',height:'22px',borderRadius:'50%',background:'white',transition:'left 0.2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
               </button>
@@ -41421,6 +41658,17 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
         <Container>
           <div style={{paddingTop:'12px'}}>
 
+            {mode==='gm' && !tradeLocked && (
+              <button onClick={()=>go('tradeBlock')}
+                style={{width:'100%',minHeight:'48px',marginBottom:'12px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',padding:'0 16px',borderRadius:'10px',border:`1px solid ${ACC}66`,background:ACC+'12',color:TXT,cursor:'pointer',fontFamily:SYS_FONT,textAlign:'left'}}>
+                <span style={{display:'flex',flexDirection:'column',gap:'2px'}}>
+                  <span style={{fontSize:'14px',fontWeight:800}}>{noEmoji('Shop players for trades')}</span>
+                  <span style={{fontSize:'12px',color:TXT2}}>Pick players or picks and see what every team offers</span>
+                </span>
+                <span aria-hidden="true" style={{fontSize:'18px',fontWeight:800,color:legible(ACC_T,'light')}}>→</span>
+              </button>
+            )}
+
             {mode==='gm' && expiring.length > 0 && resignList(expiring, { offseason: !!gmPlayoffData?.champion, urgent: !!gmPlayoffData || ((gmSeason?.wins||0)+(gmSeason?.losses||0)) >= DEADLINE_TRADE })}
 
             {mode==='gm' && (() => {
@@ -41553,6 +41801,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                           style={{flex:'1 1 110px',minHeight:'40px',background:gmFeaturedPlayerId===p.id?(ACC_TINT+'18'):'transparent',color:gmFeaturedPlayerId===p.id?ACC_T:TXT2,border:`1px solid ${gmFeaturedPlayerId===p.id?(ACC+'55'):BORD}`,borderRadius:'8px',padding:'8px 10px',fontSize:'12px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
                           {noEmoji(gmFeaturedPlayerId===p.id ? 'Featured' : 'Feature in broadcasts')}
                         </button>
+                        {!tradeLocked && (
+                          <button onClick={()=>shopPlayersNow([p.id])}
+                            style={{flex:'1 1 110px',minHeight:'40px',background:'transparent',color:legible(ACC_T,'light'),border:`1px solid ${ACC}73`,borderRadius:'8px',padding:'8px 10px',fontSize:'12px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
+                            Find trades
+                          </button>
+                        )}
                         {isExp && (
                           <button onClick={()=>offerExtension(p.id)}
                             style={{flex:'1 1 110px',background:'transparent',color:WIN,border:`1px solid ${WIN}73`,borderRadius:'8px',padding:'8px 10px',fontSize:'12px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
@@ -42479,6 +42733,22 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               );
             })()}
 
+            {/* ── SIM PAUSED: where a multi-game sim stopped, and why ── */}
+            {gmSimStop && (gmSeason?.wins||0) + (gmSeason?.losses||0) === gmSimStop.game && (
+              <div role="status" style={{...card({padding:'12px 14px',marginBottom:'10px'}), borderLeft:`3px solid ${ACC}`, paddingLeft:'14px'}}>
+                <div style={{fontSize:'12px',fontWeight:800,letterSpacing:'1px',color:legible(ACC_T,'light'),textTransform:'uppercase'}}>{noEmoji(`Sim paused · after Game ${gmSimStop.game} · ${gmSimStop.wins}–${gmSimStop.losses}`)}</div>
+                <div style={{fontSize:'13.5px',color:TXT,lineHeight:1.5,margin:'4px 0 10px'}}>{noEmoji(gmSimStop.why)} Your record only counts the games played so far, so anything you do now affects the rest of the season.</div>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                  <button onClick={()=>{ const n = gmSimStop.left; setGmSimStop(null); gmSimGames(n); }}
+                    style={{flex:'1 1 160px',minHeight:'42px',borderRadius:'8px',border:'none',background:ACC,color:'#FFFFFF',fontSize:'13px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>
+                    {noEmoji(`Keep simming (${gmSimStop.left} game${gmSimStop.left===1?'':'s'} left in this run)`)}
+                  </button>
+                  <button onClick={()=>setGmSimStop(null)}
+                    style={{flex:'0 1 110px',minHeight:'42px',borderRadius:'8px',border:`1px solid ${BORD}`,background:'transparent',color:TXT,fontSize:'13px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT}}>Dismiss</button>
+                </div>
+              </div>
+            )}
+
             {/* ── WHAT'S NEXT: one place to move the season forward ── */}
             {(() => {
               const { title, sub, primary, extras } = gmNextStep();
@@ -42548,6 +42818,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                   return (
                     <div style={{...card({padding:'12px 14px',marginBottom:'10px'}), borderLeft:`3px solid ${ACC}`,paddingLeft:'14px',paddingRight:'14px',borderTop:'none'}}>
                       <Lbl>Phone call · {R.name}, {t.city} {t.name}</Lbl>
+                      {rivalCall.atGame && <div style={{fontSize:'12px',fontWeight:700,color:TXT2,margin:'-4px 0 4px'}}>{noEmoji(`Came in after Game ${rivalCall.atGame} (you were ${rivalCall.atRecord})`)}</div>}
                       <div style={{fontSize:'12px',color:MUTED,margin:'-2px 0 6px'}}>{RIVAL_STYLES[R.style]?.label} · {relLabel(R.rel).t} with you</div>
                       <div style={{fontSize:'13px',color:TXT,fontStyle:'italic',lineHeight:1.5,marginBottom:'8px'}}>{rivalCall.pitch}</div>
                       <div style={{fontSize:'12.5px',color:TXT2,lineHeight:1.6}}>
@@ -43113,8 +43384,30 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
       <Wrap>
         <Header title={`Free Agents · ${eraOrSeasonLabel(mode,selectedEra,season)}`} onBack={()=>go('gmDashboard')} />
         <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
-        <Container>
+        <Container wide>
           <div style={{paddingTop:'12px'}}>
+            {mode==='gm' && gmFaDay != null && gmFaDay < FA_DAYS && (gmSeason?.wins||0) + (gmSeason?.losses||0) === 0 && (() => {
+              const segBtn = (primary) => ({flex:'1 1 100px',minHeight:'42px',borderRadius:'8px',border:primary?'none':`1px solid ${BORD}`,background:primary?ACC:'transparent',color:primary?'#FFFFFF':TXT,fontSize:'13px',fontWeight:700,cursor:'pointer',fontFamily:SYS_FONT});
+              return (
+                <div style={card({padding:'14px 16px',marginBottom:'12px'})}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:'8px'}}>
+                    <span style={{fontSize:'15px',fontWeight:800,color:TXT}}>{noEmoji(`Free agency · Day ${gmFaDay + 1} of ${FA_DAYS}`)}</span>
+                    <span style={{fontSize:'12px',fontWeight:700,color:MUTED,fontFamily:MONO}}>{noEmoji(`${freeAgents.length} available`)}</span>
+                  </div>
+                  <div style={{height:'6px',borderRadius:'3px',background:BORD,margin:'8px 0',overflow:'hidden'}}>
+                    <div style={{width:`${Math.round(gmFaDay / FA_DAYS * 100)}%`,height:'100%',background:ACC}}></div>
+                  </div>
+                  <div style={{fontSize:'12.5px',color:TXT2,lineHeight:1.45,marginBottom:'10px'}}>
+                    Make your offers. Each day other teams sign players, so the best ones go first. After the first week, anyone still unsigned starts asking for less.
+                  </div>
+                  <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                    <button onClick={()=>advanceFreeAgency(1)} style={segBtn(true)}>Next day</button>
+                    {FA_DAYS - gmFaDay > 1 && <button onClick={()=>advanceFreeAgency(7)} style={segBtn(false)}>+7 days</button>}
+                    <button onClick={()=>advanceFreeAgency(FA_DAYS)} style={segBtn(false)}>{noEmoji(`End free agency`)}</button>
+                  </div>
+                </div>
+              );
+            })()}
             {/* Your budget, in plain words */}
             <div style={card({padding:'14px 16px',marginBottom:'12px'})}>
               <div style={{display:'flex',gap:'18px',flexWrap:'wrap',marginBottom:'10px'}}>
@@ -43163,14 +43456,15 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
             </div>
 
             {shown.length > 0 ? (
-              <div style={card({padding:0,overflow:'hidden'})}>
+              // Columns on wider screens (2–3 across), one column on a phone.
+              <div style={{...card({padding:0,overflow:'hidden'}), display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(min(100%, 330px), 1fr))', gap:'1px', background:BORD}}>
                 {shown.map(({p,i,ask,minOk},k) => {
                   const origAsk = Math.max(p.contract.salary, minSal);
                   const ok = afford({ask,minOk});
                   const pot = p.potential ?? p.overall;
                   const label = rFull ? 'Full' : minOk && faRoom.overCap ? 'Sign · min' : 'Sign';
                   return (
-                    <div key={p.id} style={{display:'flex',alignItems:'center',gap:'12px',padding:'11px 14px',borderTop:k?`1px solid ${BORD}`:'none'}}>
+                    <div key={p.id} style={{display:'flex',alignItems:'center',gap:'12px',padding:'11px 14px',background:CARD}}>
                       <OvrCircle ovr={p.overall} size={40}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:'flex',alignItems:'center',gap:'6px',minWidth:0}}>
@@ -43179,11 +43473,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                         </div>
                         <div style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:MUTED,marginTop:'2px',flexWrap:'wrap'}}>
                           <span>Age {p.age}</span>
+                          {p.lastTeam && <span title="His team last season">{noEmoji(`Last: ${p.lastTeam}`)}</span>}
                           {pot > p.overall && <span style={{color:WIN,fontWeight:700}}>POT {pot}</span>}
                           <span style={{color:ok?TXT2:LOSS,fontFamily:MONO,fontWeight:700}}>{fmtMoney(ask)}/yr</span>
                           {origAsk > ask + 0.0005 && <span style={{fontFamily:MONO,textDecoration:'line-through'}}>{fmtMoney(origAsk)}</span>}
                           <span>{p.contract.years}yr</span>
-                          {minOk && <span title={minOk==='ring' ? 'Would sign for the minimum to chase a title with you' : 'Would sign with you for the minimum'} style={{fontSize:'11px',fontWeight:800,color:WIN,background:WIN_F+'14',padding:'1px 7px',borderRadius:'8px'}}>{minOk==='ring' ? '💍 Takes min' : '✓ Takes min'}</span>}
+                          {minOk && <span title={minOk==='ring' ? 'Would sign for the minimum to chase a title with you' : 'Would sign with you for the minimum'} style={{fontSize:'11px',fontWeight:800,color:WIN,background:WIN_F+'14',padding:'1px 7px',borderRadius:'8px'}}>{noEmoji('Takes min')}</span>}
                         </div>
                       </div>
                       <button onClick={()=>startNegotiation(i)} disabled={rFull}
@@ -43259,7 +43554,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                 </div>
               )}
               {negoStatus === null && (
-                <div style={{fontSize:'11px',color:MUTED,marginTop:'6px'}}>{!isExt && negoMood?.minOk ? <span style={{color:WIN,fontWeight:700}}>{negoMood.minOk === 'ring' ? '💍 He\'ll sign for the minimum to chase a title with you.' : '✓ He\'ll sign for the minimum.'}</span> : roundsLeft <= 1 ? 'Last chance — he may walk after this offer.' : `He'll hear about ${roundsLeft} more offer${roundsLeft!==1?'s':''} at most. A lowball can end the talks early.`}</div>
+                <div style={{fontSize:'11px',color:MUTED,marginTop:'6px'}}>{!isExt && negoMood?.minOk ? <span style={{color:WIN,fontWeight:700}}>{negoMood.minOk === 'ring' ? 'He\'ll sign for the minimum to chase a title with you.' : 'He\'ll sign for the minimum.'}</span> : roundsLeft <= 1 ? 'Last chance — he may walk after this offer.' : `He'll hear about ${roundsLeft} more offer${roundsLeft!==1?'s':''} at most. A lowball can end the talks early.`}</div>
               )}
               {room && negoStatus === null && (
                 <div style={{fontSize:'11.5px',color:room.overCap?ACC_T:TXT2,marginTop:'6px',fontWeight:600}}>
@@ -43582,7 +43877,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               </div>
             ) : isUserTurn ? (
               // USER'S PICK
-              <div>
+              <div key="mine">
                 <div style={{background:'transparent',border:'none',borderRadius:0,padding:'14px 14px 14px 14px',textAlign:'center',marginBottom:'16px',borderLeft:`3px solid ${ACC}`}}>
                   <div style={{fontSize:'12px',color:ACC_T,letterSpacing:'2px',marginBottom:'4px'}}>YOUR PICK</div>
                   <div style={{fontSize:'18px',fontWeight:700,color:TXT}}>
@@ -43620,7 +43915,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
               </div>
             ) : (
               // CPU'S TURN
-              <div>
+              <div key="cpu">
                 <div style={{background:'transparent',border:'none',borderRadius:0,padding:'16px 0',textAlign:'center',marginBottom:'16px',borderTop:`1px solid ${BORD}`}}>
                   <div style={{fontSize:'11px',color:MUTED,letterSpacing:'2px',marginBottom:'6px'}}>ON THE CLOCK</div>
                   {currentTeam && <Badge text={currentTeam.id} clr={currentTeam.clr} />}
@@ -46067,26 +46362,8 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
     );
   }
 
-  // =================== GM TRADE TEAM PICKER ===================
-  // ═══════════════════ TRADE BLOCK ═══════════════════
-  if (screen === 'tradeBlock') {
-    const judge = makeRivalJudge();
-    const suggestions = findTradeSuggestions(myTeam, teams, { picks: tradeLocked ? [] : ownedPicks(myTeamId).map(k => ({ k, v: pickValue(k) })), accepts: (t, combo, pks, target) => judge(t, combo, pks, [target]) });
-    const NEED_LABEL = { scoring:'Scoring', defense:'Defense', rebounding:'Rebounding', passing:'Playmaking' };
-    const fullMarket = getLeagueMarket(teams, myTeamId);
-    const market = fullMarket.filter(m =>
-      (marketPos==='ALL' || m.player.pos===marketPos || m.player.pos2===marketPos) &&
-      (marketType==='ALL' || m.type===marketType)
-    );
-    return (
-      <Wrap>
-        <Header title="Trade Block" onBack={()=>go('gmTradePick')}/>
-        <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
-        <Container>
-          <div style={{paddingTop:'14px'}}>
-
-            {/* ── Shop a package: pick what you'd move, see what each team gives back ── */}
-            {(() => {
+  // Shop a package (shared by the Trades screen and the Trade Block).
+  function renderShopPackage() {
               const myRoster = [...(myTeam?.roster||[])].sort((a,b)=>b.overall-a.overall);
               const myPks = ownedPicks(myTeamId);
               const cashMax = Math.max(0, tradeCashLimit() - cashUsed(myTeamId).s);
@@ -46186,7 +46463,28 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                   ))}
                 </div>
               );
-            })()}
+  }
+
+  // =================== GM TRADE TEAM PICKER ===================
+  // ═══════════════════ TRADE BLOCK ═══════════════════
+  if (screen === 'tradeBlock') {
+    const judge = makeRivalJudge();
+    const suggestions = findTradeSuggestions(myTeam, teams, { picks: tradeLocked ? [] : ownedPicks(myTeamId).map(k => ({ k, v: pickValue(k) })), accepts: (t, combo, pks, target) => judge(t, combo, pks, [target]) });
+    const NEED_LABEL = { scoring:'Scoring', defense:'Defense', rebounding:'Rebounding', passing:'Playmaking' };
+    const fullMarket = getLeagueMarket(teams, myTeamId);
+    const market = fullMarket.filter(m =>
+      (marketPos==='ALL' || m.player.pos===marketPos || m.player.pos2===marketPos) &&
+      (marketType==='ALL' || m.type===marketType)
+    );
+    return (
+      <Wrap>
+        <Header title="Trade Block" onBack={()=>go('gmTradePick')}/>
+        <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
+        <Container>
+          <div style={{paddingTop:'14px'}}>
+
+            {/* ── Shop a package: pick what you'd move, see what each team gives back ── */}
+            {renderShopPackage()}
 
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'10px'}}>
               <div style={{fontSize:'11px',color:MUTED,fontWeight:700,letterSpacing:'1.5px'}}>TRADE OPPORTUNITIES</div>
@@ -46313,11 +46611,12 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
                 const isSigning = !!tx.player;
                 return (
                   <div key={tx.id} style={{display:'flex',alignItems:'flex-start',gap:'10px',padding:'10px 0',borderBottom:`1px solid ${BORD}`}}>
+                    {tx.when && <span style={{flexShrink:0,minWidth:'64px',fontSize:'11px',fontWeight:700,color:MUTED,fontFamily:MONO,paddingTop:'3px'}}>{noEmoji(tx.when)}</span>}
                     <span style={{fontSize:'16px'}}>{isSigning?'✍️':'🔄'}</span>
                     <div style={{flex:1}}>
                       <div style={{fontSize:'13px',color:TXT,lineHeight:1.5}}>
                         {isSigning ? (
-                          <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> sign free agent <span style={{fontWeight:700}}>{tx.player}</span>.</>
+                          <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> {/ re-sign /.test(tx.summary||'') ? 're-sign' : 'sign free agent'} <span style={{fontWeight:700}}>{tx.player}</span>{/\.$/.test(tx.player||'')?'':'.'}</>
                         ) : (
                           <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> trade <span style={{fontWeight:700}}>{tx.playerA}</span> to <span style={{fontWeight:700,color:legible(tb?.clr||TXT,'light')}}>{tb?.city} {tb?.name}</span> for <span style={{fontWeight:700}}>{tx.playerB}</span>.</>
                         )}
@@ -46342,6 +46641,7 @@ function HardwoodGameInner({ onNewRun = null, initialLoad = null } = {}) {
         <BottomNav screen={screen} go={go} mode={mode} teamClr={myTeam?.clr||ACC}/>
         <Container>
           <div style={{paddingTop:'12px'}}>
+            {renderShopPackage()}
             <button onClick={()=>go('tradeBlock')}
               style={{width:'100%',background:'transparent',border:'none',borderLeft:`3px solid ${ACC}`,borderRadius:0,padding:'14px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'12px',cursor:'pointer',fontFamily:SYS_FONT,textAlign:'left',borderTop:`1px solid ${BORD}`,borderBottom:`1px solid ${BORD}`}}>
               <span style={{fontSize:'24px',color:ACC_T}}><Ico e="📋" size="1em"/></span>
@@ -49413,10 +49713,11 @@ const CONF_CLR = { get East(){ return TXT2; }, get West(){ return TXT2; }, get F
                 const isSigning = !!tx.player;
                 return (
                   <div key={tx.id} style={{display:'flex',gap:'10px',padding:'10px 0',borderBottom:`1px solid ${BORD}`}}>
+                    {tx.when && <span style={{flexShrink:0,minWidth:'64px',fontSize:'11px',fontWeight:700,color:MUTED,fontFamily:MONO,paddingTop:'3px'}}>{noEmoji(tx.when)}</span>}
                     <span style={{fontSize:'16px'}}>{isSigning?'✍️':'🔄'}</span>
                     <div style={{fontSize:'13px',color:TXT,lineHeight:1.5}}>
                       {isSigning ? (
-                        <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> sign free agent <span style={{fontWeight:700}}>{tx.player}</span>.</>
+                        <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> {/ re-sign /.test(tx.summary||'') ? 're-sign' : 'sign free agent'} <span style={{fontWeight:700}}>{tx.player}</span>{/\.$/.test(tx.player||'')?'':'.'}</>
                       ) : (
                         <><span style={{fontWeight:700,color:legible(ta?.clr||TXT,'light')}}>{ta?.city} {ta?.name}</span> trade <span style={{fontWeight:700}}>{tx.playerA}</span> to <span style={{fontWeight:700,color:legible(tb?.clr||TXT,'light')}}>{tb?.city} {tb?.name}</span> for <span style={{fontWeight:700}}>{tx.playerB}</span>.</>
                       )}
@@ -49704,7 +50005,7 @@ const CONF_CLR = { get East(){ return TXT2; }, get West(){ return TXT2; }, get F
                       <span style={{fontSize:'12px',color:WIN,fontWeight:800,lineHeight:'36px'}}>✓ Fully scouted</span>
                     ) : (
                       <button onClick={(e)=>{ e.stopPropagation(); doScout(p); }} disabled={points < SCOUT_POINT_COST}
-                        style={{fontSize:'11.5px',fontWeight:800,color:points<SCOUT_POINT_COST?MUTED:legible(ACC_T,'light',4.8),background:'transparent',border:`1px solid ${points<SCOUT_POINT_COST?BORD:ACC}`,borderRadius:'8px',padding:'5px 10px',cursor:points<SCOUT_POINT_COST?'default':'pointer',fontFamily:SYS_FONT,whiteSpace:'nowrap',flexShrink:0,minHeight:'36px',padding:'0 14px'}}>
+                        style={{fontSize:'11.5px',fontWeight:800,color:points<SCOUT_POINT_COST?MUTED:legible(ACC_T,'light',4.8),background:'transparent',border:`1px solid ${points<SCOUT_POINT_COST?BORD:ACC}`,borderRadius:'8px',cursor:points<SCOUT_POINT_COST?'default':'pointer',fontFamily:SYS_FONT,whiteSpace:'nowrap',flexShrink:0,minHeight:'36px',padding:'0 14px'}}>
  Scout · {noEmoji(sd.acc)}% known
                       </button>
                     )}
@@ -50124,6 +50425,13 @@ const CHANGELOG = [
       "Re-signing is front and center (GM mode). The Roster opens with a Re-sign your players list: each expiring player's asking price, his odds of staying if you do nothing, and a Re-sign button that goes straight to the negotiation. From the trade deadline on, the list also sits right under What's next on your dashboard.",
       "After the Finals, What's next tells you how many contracts are up before you can start the new season, so no one walks without you noticing. Start Season anyway is still there if you're happy to let them go.",
       "Fixed: re-signing a player in the last year of his deal now adds the new years after this season, so a 4-year deal really leaves 4 years.",
+      "CPU teams no longer trade away their young franchise players. A rookie Yao Ming stays in Houston even while he's not yet the team's best player.",
+      "A new GM save opens with free agency too: a full market of about 120 real players who aren't on a roster that season (not just the 40 or so leftovers), and the same 30 days before tip-off. In Real Players mode the market is real players only: invented prospects who go undrafted no longer show up in it.",
+      "Simpler GM start options, in the order of a real year: Offseason (lottery, your draft, then free agency), Free Agency (draft done, start on Day 1), Preseason (new: free agency is over, so you get the real opening-night rosters and go straight into the season), and Playoffs. Draft Lottery and Draft Day are gone: Offseason starts at the lottery, and you can skip straight to the draft from there.",
+      "Sims pause when something happens. Simming several games now stops right after the game where a rival calls with a trade, or one of your top eight players gets hurt for 5+ games, so you can act before the rest are played. A banner shows where you stopped (for example, after Game 34, 20–14) with a Keep simming button. Trade calls say which game they came in after, league news is stamped with its game, and every trade and signing in the transactions feed shows the game (or free agency day) it happened.",
+      "That summer's real free agents start on the market. Players whose contracts ran out and who really signed new deals that summer (like Jalen Duren or Peyton Watson) begin a new save unsigned. During free agency their real teams usually bring them back at their real contracts, unless you sign them first. The Free Agents list shows each one's last team, and it spreads into 2 or 3 columns on wider screens so there's less scrolling.",
+      "Real free agency (GM mode). After the Finals, every player whose contract ran out, league-wide, goes into one market: no more short list of leftovers. Free agency then runs 30 days before the season. Each day other teams sign players (the best go first), and after the first week anyone unsigned asks for less. Move day by day, a week at a time, or skip to the end from What's next or the Free Agents screen.",
+      "Find trades for any player straight from your Roster: open his row and tap Find trades to see every team's best offer. The new Shop players for trades button at the top of the Roster opens the Trade Block too, and Shop a package now sits at the top of the Trades screen.",
     ] },
   { version:'1.23', date:'November 2026', title:'Cash in trades',
     items:[
